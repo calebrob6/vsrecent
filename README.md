@@ -3,6 +3,8 @@
 Tiny Windows GUI launcher for VSCode "Open Recent" projects. Type to filter,
 Enter (or double-click) to open.
 
+![VS Recent demo screenshot](images/screenshot.png)
+
 - Single-file, self-contained .NET 9 WinForms app. No runtime install needed
   on the target machine.
 - Native builds for **x64** and **ARM64** Windows.
