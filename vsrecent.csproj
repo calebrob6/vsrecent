@@ -13,7 +13,7 @@
     <AssemblyName>vsrecent</AssemblyName>
     <ApplicationIcon>vsrecent.ico</ApplicationIcon>
 
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Product>VS Recent</Product>
     <Description>Tiny launcher for VSCode "Open Recent" projects.</Description>
 

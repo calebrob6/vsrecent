@@ -10,9 +10,14 @@ Enter (or double-click) to open.
   `%USERPROFILE%\.vscode-shared\sharedStorage\state.vscdb` via
   `winsqlite3.dll` (built into Windows). No bundled native libs.
 - Includes remote entries: WSL, SSH, Dev Containers — everything from
-  *File → Open Recent → More…* in VSCode.
+  *File → Open Recent → More…* in VSCode. Each row is tagged with a colored
+  pill showing the remote kind (`LOCAL`, `WSL: Ubuntu`, `SSH: hostname`,
+  `DEV CONTAINER`, `CODESPACE`, `GITHUB`, …).
 - Launches `Code.exe --folder-uri "<uri>"` detached, then exits. The VSCode
   window keeps running independently of this app.
+
+Run `vsrecent.exe --demo` for a populated UI with fake mixed-remote entries
+(handy for screenshots).
 
 ## Download
 

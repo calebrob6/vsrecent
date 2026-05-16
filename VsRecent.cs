@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Net;
 using System.Text.Json;
@@ -19,6 +20,8 @@ namespace VsRecent
         public string DisplayMain;
         public string DisplaySub;
         public string SearchKey;
+        public string PillText;
+        public Color PillColor;
     }
 
     internal sealed class MainForm : Form
@@ -129,19 +132,87 @@ namespace VsRecent
             Color fgMain = Color.White;
             Color fgSub = selected ? Color.FromArgb(220, 235, 255) : Color.FromArgb(140, 140, 140);
 
+            var g = e.Graphics;
+
             using (var bgBrush = new SolidBrush(bg))
-                e.Graphics.FillRectangle(bgBrush, e.Bounds);
+                g.FillRectangle(bgBrush, e.Bounds);
+
+            const int leftPad = 8;
+            const int rightPad = 8;
+            const int pillHPad = 7;
+            const int pillH = 18;
+            const int pillRadius = 5;
 
             using (var fontMain = new Font("Segoe UI", 10f, FontStyle.Regular))
             using (var fontSub = new Font("Segoe UI", 8.25f, FontStyle.Regular))
+            using (var fontPill = new Font("Segoe UI", 8f, FontStyle.Bold))
             using (var bMain = new SolidBrush(fgMain))
             using (var bSub = new SolidBrush(fgSub))
             {
-                e.Graphics.DrawString(entry.DisplayMain, fontMain, bMain,
-                    e.Bounds.Left + 8, e.Bounds.Top + 3);
-                e.Graphics.DrawString(entry.DisplaySub, fontSub, bSub,
-                    e.Bounds.Left + 8, e.Bounds.Top + 21);
+                string pillText = entry.PillText ?? "";
+                Size pillTextSize = TextRenderer.MeasureText(g, pillText, fontPill,
+                    Size.Empty, TextFormatFlags.NoPadding);
+                int pillW = pillTextSize.Width + pillHPad * 2;
+                int pillX = e.Bounds.Right - rightPad - pillW;
+                int pillY = e.Bounds.Top + 4;
+
+                int textLeft = e.Bounds.Left + leftPad;
+                int mainMaxW = Math.Max(0, pillX - 6 - textLeft);
+                int subMaxW = Math.Max(0, e.Bounds.Right - rightPad - textLeft);
+
+                string main = TruncateToFit(g, entry.DisplayMain ?? "", fontMain, mainMaxW);
+                g.DrawString(main, fontMain, bMain, textLeft, e.Bounds.Top + 3);
+
+                string sub = TruncateToFit(g, entry.DisplaySub ?? "", fontSub, subMaxW);
+                g.DrawString(sub, fontSub, bSub, textLeft, e.Bounds.Top + 22);
+
+                SmoothingMode prevSmooth = g.SmoothingMode;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                using (var path = RoundedRect(pillX, pillY, pillW, pillH, pillRadius))
+                using (var pillBrush = new SolidBrush(entry.PillColor))
+                {
+                    g.FillPath(pillBrush, path);
+                }
+                g.SmoothingMode = prevSmooth;
+
+                int pillTextY = pillY + (pillH - pillTextSize.Height) / 2;
+                TextRenderer.DrawText(g, pillText, fontPill,
+                    new Point(pillX + pillHPad, pillTextY), Color.White,
+                    TextFormatFlags.NoPadding);
             }
+        }
+
+        private static string TruncateToFit(Graphics g, string text, Font font, float maxWidth)
+        {
+            if (string.IsNullOrEmpty(text) || maxWidth <= 0) return text;
+            if (g.MeasureString(text, font).Width <= maxWidth) return text;
+            const string ellipsis = "…";
+            int lo = 0, hi = text.Length;
+            while (lo < hi)
+            {
+                int mid = (lo + hi + 1) / 2;
+                string candidate = text.Substring(0, mid) + ellipsis;
+                if (g.MeasureString(candidate, font).Width <= maxWidth) lo = mid;
+                else hi = mid - 1;
+            }
+            return lo > 0 ? text.Substring(0, lo) + ellipsis : ellipsis;
+        }
+
+        private static GraphicsPath RoundedRect(int x, int y, int w, int h, int r)
+        {
+            var path = new GraphicsPath();
+            if (r <= 0 || w <= 0 || h <= 0)
+            {
+                if (w > 0 && h > 0) path.AddRectangle(new Rectangle(x, y, w, h));
+                return path;
+            }
+            int d = Math.Min(r * 2, Math.Min(w, h));
+            path.AddArc(x, y, d, d, 180, 90);
+            path.AddArc(x + w - d, y, d, d, 270, 90);
+            path.AddArc(x + w - d, y + h - d, d, d, 0, 90);
+            path.AddArc(x, y + h - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
         }
 
         private void ApplyFilter()
@@ -280,22 +351,136 @@ namespace VsRecent
         }
     }
 
+    // Maps a VSCode folderUri to a short pill label + color identifying the
+    // remote kind (local, WSL distro, SSH host, dev-container, codespace, …).
+    internal static class RemoteClassifier
+    {
+        // Curated palette: distinct hues that read clearly on the dark list bg
+        // and avoid pure red/green (which would imply error/success status).
+        private static readonly Color[] HashPalette = new[]
+        {
+            Color.FromArgb(192,  86,  33), // burnt orange
+            Color.FromArgb( 31, 111, 235), // blue
+            Color.FromArgb(110,  64, 201), // purple
+            Color.FromArgb( 45, 164,  78), // forest green
+            Color.FromArgb(191, 135,   0), // gold
+            Color.FromArgb(163, 113, 247), // lavender
+            Color.FromArgb(  9, 105, 218), // sky blue
+            Color.FromArgb(204,  75,  72), // muted red
+            Color.FromArgb(  0, 137, 123), // teal
+            Color.FromArgb(214,  99,   0), // pumpkin
+        };
+
+        public static void Apply(Entry e)
+        {
+            var (text, color) = Classify(e.FolderUri);
+            e.PillText = text;
+            e.PillColor = color;
+        }
+
+        public static (string text, Color color) Classify(string folderUri)
+        {
+            if (string.IsNullOrEmpty(folderUri))
+                return ("?", Color.FromArgb(90, 90, 90));
+
+            if (folderUri.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+                return ("LOCAL", Color.FromArgb(90, 90, 90));
+
+            if (folderUri.StartsWith("vscode-remote://", StringComparison.OrdinalIgnoreCase))
+            {
+                string rest = folderUri.Substring("vscode-remote://".Length);
+                int slash = rest.IndexOf('/');
+                string authority = slash >= 0 ? rest.Substring(0, slash) : rest;
+                string decoded;
+                try { decoded = Uri.UnescapeDataString(authority); }
+                catch { decoded = authority; }
+
+                int plus = decoded.IndexOf('+');
+                string kind     = plus >= 0 ? decoded.Substring(0, plus)  : decoded;
+                string instance = plus >= 0 ? decoded.Substring(plus + 1) : "";
+
+                switch (kind.ToLowerInvariant())
+                {
+                    case "wsl":
+                        return ("WSL: " + Truncate(NonEmpty(instance, "?"), 18),
+                                WslColor(instance));
+                    case "ssh-remote":
+                        return ("SSH: " + Truncate(NonEmpty(instance, "?"), 18),
+                                HashColor(instance));
+                    case "dev-container":
+                        return ("DEV CONTAINER", Color.FromArgb(36, 150, 237));
+                    case "attached-container":
+                        return ("CONTAINER", Color.FromArgb(36, 150, 237));
+                    case "codespaces":
+                        return ("CODESPACE", Color.FromArgb(110, 64, 201));
+                    case "tunnel":
+                        return ("TUNNEL", Color.FromArgb(0, 137, 123));
+                    default:
+                        return (Truncate(kind.ToUpperInvariant(), 18), HashColor(kind));
+                }
+            }
+
+            if (folderUri.StartsWith("vscode-vfs://github", StringComparison.OrdinalIgnoreCase))
+                return ("GITHUB", Color.FromArgb(110, 64, 201));
+
+            int colon = folderUri.IndexOf(':');
+            string scheme = colon > 0 ? folderUri.Substring(0, colon).ToUpperInvariant() : "?";
+            return (Truncate(scheme, 18), HashColor(scheme));
+        }
+
+        private static Color WslColor(string distro)
+        {
+            string d = (distro ?? "").ToLowerInvariant();
+            if (d.StartsWith("ubuntu"))   return Color.FromArgb(233,  84,  32);
+            if (d.StartsWith("debian"))   return Color.FromArgb(168,  29,  51);
+            if (d.StartsWith("kali"))     return Color.FromArgb( 70, 124, 190);
+            if (d.StartsWith("alpine"))   return Color.FromArgb( 13,  89, 124);
+            if (d.StartsWith("arch"))     return Color.FromArgb( 23, 147, 209);
+            if (d.StartsWith("fedora"))   return Color.FromArgb( 41,  65, 114);
+            if (d.StartsWith("opensuse") || d.StartsWith("suse"))
+                                          return Color.FromArgb(115, 186,  37);
+            return HashColor(distro);
+        }
+
+        private static Color HashColor(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return Color.FromArgb(90, 90, 90);
+            uint h = 2166136261u;
+            for (int i = 0; i < s.Length; i++)
+            {
+                h ^= char.ToLowerInvariant(s[i]);
+                h *= 16777619u;
+            }
+            return HashPalette[h % (uint)HashPalette.Length];
+        }
+
+        private static string NonEmpty(string s, string fallback) =>
+            string.IsNullOrEmpty(s) ? fallback : s;
+
+        private static string Truncate(string s, int max) =>
+            (s != null && s.Length > max) ? s.Substring(0, max - 1) + "…" : s;
+    }
+
     internal static class Program
     {
         private const string DbRel  = @".vscode-shared\sharedStorage\state.vscdb";
         private const string KeyName = "history.recentlyOpenedPathsList";
 
         [STAThread]
-        public static int Main()
+        public static int Main(string[] args)
         {
             try
             {
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
 
-                List<Entry> entries = LoadEntries();
+                bool demo = args != null && Array.Exists(args,
+                    a => string.Equals(a, "--demo", StringComparison.OrdinalIgnoreCase));
+
+                List<Entry> entries = demo ? DemoEntries() : LoadEntries();
                 using (var f = new MainForm(entries))
                 {
+                    if (demo) f.Text = "VS Recent — demo";
                     Application.Run(f);
                 }
                 return 0;
@@ -341,13 +526,54 @@ namespace VsRecent
                 string displaySub  = folderUri;
                 string searchKey   = ((displayMain ?? "") + " " + folderUri).ToLowerInvariant();
 
-                list.Add(new Entry
+                var entry = new Entry
                 {
                     FolderUri   = folderUri,
                     DisplayMain = displayMain,
                     DisplaySub  = displaySub,
                     SearchKey   = searchKey,
-                });
+                };
+                RemoteClassifier.Apply(entry);
+                list.Add(entry);
+            }
+            return list;
+        }
+
+        // Hardcoded entries for `vsrecent.exe --demo`, used to take screenshots
+        // and to eyeball pill colors without needing real VSCode history.
+        private static List<Entry> DemoEntries()
+        {
+            var samples = new (string label, string uri)[]
+            {
+                ("vsrecent",            "file:///c%3A/Users/caleb/apps/vsrecent"),
+                ("nature-2026-draft",   "file:///c%3A/Users/caleb/Documents/papers/nature-2026"),
+                (null,                  "file:///c%3A/Users/caleb/experiments/quick-test"),
+                ("personal-site",       "file:///c%3A/Users/caleb/code/blog"),
+                ("dotfiles",            "vscode-remote://wsl%2BUbuntu/home/caleb/dotfiles"),
+                ("ml-training",         "vscode-remote://wsl%2BUbuntu-22.04/home/caleb/work/ml-training"),
+                ("docker-stack",        "vscode-remote://wsl%2BDebian/home/caleb/srv/stack"),
+                ("linux-kernel",        "vscode-remote://wsl%2BArchLinux/home/caleb/src/linux"),
+                ("homelab-nas",         "vscode-remote://ssh-remote%2Bhomelab.lan/srv/nas/config"),
+                ("training-rig",        "vscode-remote://ssh-remote%2Bgpu-rig-01/data/runs/2026-05"),
+                ("uni-cluster",         "vscode-remote://ssh-remote%2Beuler.ethz.ch/scratch/caleb"),
+                ("api-service",         "vscode-remote://dev-container%2B7b22686f7374223a22646f636b6572227d/workspaces/api-service"),
+                ("experiments",         "vscode-remote://codespaces%2Bbookish-doodle-9a3f12/workspaces/experiments"),
+                ("vscode-docs",         "vscode-vfs://github/microsoft/vscode-docs"),
+            };
+
+            var list = new List<Entry>(samples.Length);
+            foreach (var (label, uri) in samples)
+            {
+                string main = !string.IsNullOrEmpty(label) ? label : DefaultLabel(uri);
+                var entry = new Entry
+                {
+                    FolderUri   = uri,
+                    DisplayMain = main,
+                    DisplaySub  = uri,
+                    SearchKey   = (main + " " + uri).ToLowerInvariant(),
+                };
+                RemoteClassifier.Apply(entry);
+                list.Add(entry);
             }
             return list;
         }
