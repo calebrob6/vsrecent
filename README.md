@@ -18,9 +18,6 @@ Enter (or double-click) to open.
 - Launches `Code.exe --folder-uri "<uri>"` detached, then exits. The VSCode
   window keeps running independently of this app.
 
-Run `vsrecent.exe --demo` for a populated UI with fake mixed-remote entries
-(handy for screenshots).
-
 ## Download
 
 Grab the latest release for your architecture from the
