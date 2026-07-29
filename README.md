@@ -28,6 +28,17 @@ Download the executable for your architecture from the
 The executables are unsigned. If Windows SmartScreen blocks the first launch,
 select *More info > Run anyway*.
 
+### WinGet
+
+After the package is accepted into the WinGet community repository, install it
+with:
+
+```powershell
+winget install --id calebrob6.VSRecent --exact
+```
+
+The submission-ready manifests are in `winget\manifests`.
+
 ## Install
 
 Install the latest release:
