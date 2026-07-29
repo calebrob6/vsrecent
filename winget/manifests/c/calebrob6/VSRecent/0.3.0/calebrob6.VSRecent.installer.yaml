@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+
+PackageIdentifier: calebrob6.VSRecent
+PackageVersion: 0.3.0
+InstallerType: portable
+Commands:
+- vsrecent
+ReleaseDate: 2026-07-29
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/calebrob6/vsrecent/releases/download/v0.3.0/vsrecent-win-x64.exe
+  InstallerSha256: E181489A777F3C71BE884AAD708A0D9D8D0E6966E31BB9EE313B40FA07E45EE6
+- Architecture: arm64
+  InstallerUrl: https://github.com/calebrob6/vsrecent/releases/download/v0.3.0/vsrecent-win-arm64.exe
+  InstallerSha256: EA8E636E6191962DB61D43949D0C260CF2B5E420A6596835D512E5DCF3DB01BD
+ManifestType: installer
+ManifestVersion: 1.12.0

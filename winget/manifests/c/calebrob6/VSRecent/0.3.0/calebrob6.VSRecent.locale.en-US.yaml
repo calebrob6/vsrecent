@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
 
 PackageIdentifier: calebrob6.VSRecent
-PackageVersion: 0.2.0
+PackageVersion: 0.3.0
 PackageLocale: en-US
 Publisher: Caleb Robinson
 PublisherUrl: https://github.com/calebrob6
@@ -19,6 +19,6 @@ Tags:
 - developer-tools
 - launcher
 - vscode
-ReleaseNotesUrl: https://github.com/calebrob6/vsrecent/releases/tag/v0.2.0
+ReleaseNotesUrl: https://github.com/calebrob6/vsrecent/releases/tag/v0.3.0
 ManifestType: defaultLocale
 ManifestVersion: 1.12.0
