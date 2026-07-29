@@ -22,21 +22,63 @@ namespace VsRecent
         public string SearchKey;
         public string PillText;
         public Color PillColor;
+        public string RemoteKind;        // normalized key: "local", "wsl", "ssh", "dev-container", ...
+        public string RemoteKindDisplay; // pretty label: "Local", "WSL", "SSH", "Dev Container", ...
+
+        // Owner-drawn items still use ToString() as their accessibility text.
+        public override string ToString() =>
+            (DisplayMain ?? "") + ", " + (RemoteKindDisplay ?? "") + ", " + (DisplaySub ?? "");
+    }
+
+    internal sealed class RemoteOption
+    {
+        public string Kind;    // null = "All remotes"
+        public string Display;
+        public int Count;
+        public override string ToString() => Display + " (" + Count + ")";
+    }
+
+    // Owner-drawn ListBox with right-anchored pills: when the window grows
+    // wider, Windows only invalidates the newly-exposed strip, leaving the
+    // previously-painted pill ghosted in its old position. ResizeRedraw
+    // forces a full invalidate on WM_SIZE so every visible row gets a fresh
+    // WM_DRAWITEM with its full bounds in the clip region.
+    //
+    // NB: we deliberately do *not* enable OptimizedDoubleBuffer /
+    // AllPaintingInWmPaint / DoubleBuffered here. Owner-drawn ListBox items
+    // are painted in response to WM_DRAWITEM with a DC pointing at the
+    // screen; turning on WinForms back-buffering causes that screen draw to
+    // be immediately overwritten by an empty back-buffer blit, which makes
+    // the pills disappear entirely.
+    internal sealed class FlickerFreeListBox : ListBox
+    {
+        public FlickerFreeListBox()
+        {
+            SetStyle(ControlStyles.ResizeRedraw, true);
+            UpdateStyles();
+        }
     }
 
     internal sealed class MainForm : Form
     {
         private readonly TextBox _filter;
+        private readonly ComboBox _remoteFilter;
+        private readonly Panel _filterSpacer;
+        private readonly Panel _topPanel;
         private readonly ListBox _list;
+        private readonly Label _emptyState;
         private readonly List<Entry> _all;
+        private readonly string _loadError;
         private List<Entry> _shown;
 
-        public MainForm(List<Entry> entries)
+        public MainForm(List<Entry> entries, string loadError = null)
         {
             _all = entries;
+            _loadError = loadError;
             _shown = entries;
 
             Text = "VS Recent";
+            AccessibleName = "VS Recent";
             ShowIcon = true;
             try
             {
@@ -52,6 +94,8 @@ namespace VsRecent
             StartPosition = FormStartPosition.Manual;
             Location = ComputeStartLocation(ClientSize);
             KeyPreview = true;
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96f, 96f);
             BackColor = Color.FromArgb(30, 30, 30);
             ForeColor = Color.FromArgb(220, 220, 220);
             Font = new Font("Segoe UI", 10f);
@@ -64,18 +108,75 @@ namespace VsRecent
                 BackColor = Color.FromArgb(45, 45, 48),
                 ForeColor = Color.White,
                 Font = new Font("Segoe UI", 12f),
+                AccessibleName = "Filter recent folders",
+                AccessibleDescription = "Type to filter recent folders by label, URI, or remote kind.",
             };
 
-            var topPanel = new Panel
+            _remoteFilter = new ComboBox
+            {
+                Dock = DockStyle.Right,
+                Width = 170,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(63, 63, 70),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9.5f),
+                TabStop = true,
+                AccessibleName = "Remote kind",
+                AccessibleDescription = "Filter by remote kind. Press Alt+R to open this list.",
+            };
+            _remoteFilter.SelectedIndexChanged += (s, e) =>
+            {
+                ApplyFilter();
+            };
+            _remoteFilter.DropDownClosed += (s, e) => _filter.Focus();
+            _remoteFilter.KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Enter && _remoteFilter.DroppedDown)
+                {
+                    _remoteFilter.DroppedDown = false;
+                    e.Handled = true; e.SuppressKeyPress = true;
+                }
+                else if (e.KeyCode == Keys.Enter)
+                {
+                    Launch(e.Control, e.Shift);
+                    e.Handled = true; e.SuppressKeyPress = true;
+                }
+                else if (e.KeyCode == Keys.Escape && _remoteFilter.DroppedDown)
+                {
+                    _remoteFilter.DroppedDown = false;
+                    e.Handled = true; e.SuppressKeyPress = true;
+                }
+                else if (e.KeyCode == Keys.Escape)
+                {
+                    Close();
+                    e.Handled = true; e.SuppressKeyPress = true;
+                }
+            };
+
+            // Thin spacer between the text filter and the dropdown.
+            _filterSpacer = new Panel
+            {
+                Dock = DockStyle.Right,
+                Width = 6,
+                BackColor = BackColor,
+            };
+
+            _topPanel = new Panel
             {
                 Dock = DockStyle.Top,
                 Height = 34,
                 Padding = new Padding(0, 0, 0, 6),
                 BackColor = BackColor,
             };
-            topPanel.Controls.Add(_filter);
+            // Docking order: Controls[0] is laid out LAST (gets remaining
+            // space), so add the Fill control first, then the right-docked
+            // spacer, then the right-docked combo (rightmost).
+            _topPanel.Controls.Add(_filter);
+            _topPanel.Controls.Add(_filterSpacer);
+            _topPanel.Controls.Add(_remoteFilter);
 
-            _list = new ListBox
+            _list = new FlickerFreeListBox
             {
                 Dock = DockStyle.Fill,
                 BorderStyle = BorderStyle.None,
@@ -87,20 +188,41 @@ namespace VsRecent
                 ItemHeight = 40,
                 SelectionMode = SelectionMode.One,
                 TabStop = false,
+                AccessibleName = "Recent folders",
+                AccessibleDescription = "Recent VS Code folders matching the current filters.",
             };
             _list.DrawItem += List_DrawItem;
             _list.MouseDoubleClick += (s, e) => Launch();
             _list.MouseUp += (s, e) => _filter.Focus();
             _list.KeyDown += (s, e) =>
             {
-                if (e.KeyCode == Keys.Enter) { Launch(); e.Handled = true; e.SuppressKeyPress = true; }
+                if (e.KeyCode == Keys.Enter) { Launch(e.Control, e.Shift); e.Handled = true; e.SuppressKeyPress = true; }
                 else if (e.KeyCode == Keys.Escape) { Close(); e.Handled = true; e.SuppressKeyPress = true; }
             };
 
+            _emptyState = new Label
+            {
+                Dock = DockStyle.Fill,
+                BackColor = BackColor,
+                ForeColor = Color.FromArgb(170, 170, 170),
+                Font = new Font("Segoe UI", 11f),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Padding = new Padding(24),
+                Visible = false,
+            };
+
+            var contentPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = BackColor,
+            };
+            contentPanel.Controls.Add(_list);
+            contentPanel.Controls.Add(_emptyState);
+
             // Fill control must be added BEFORE the docked-top control so it
             // ends up filling the remaining space below it.
-            Controls.Add(_list);
-            Controls.Add(topPanel);
+            Controls.Add(contentPanel);
+            Controls.Add(_topPanel);
 
             _filter.TextChanged += (s, e) => ApplyFilter();
             _filter.KeyDown += Filter_KeyDown;
@@ -109,10 +231,74 @@ namespace VsRecent
                 if (e.KeyCode == Keys.Escape) { Close(); e.Handled = true; }
             };
 
-            Load += (s, e) => _filter.Focus();
+            Load += (s, e) =>
+            {
+                Location = ComputeStartLocation(Size);
+                UpdateDpiMetrics();
+                _filter.Focus();
+            };
             Shown += (s, e) => _filter.Focus();
+            DpiChanged += (s, e) => UpdateDpiMetrics();
 
+            PopulateRemoteFilter();
             ApplyFilter();
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == (Keys.Alt | Keys.R))
+            {
+                _remoteFilter.Focus();
+                _remoteFilter.DroppedDown = true;
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        private int ScalePx(int logicalPixels) =>
+            Math.Max(1, (int)Math.Round(logicalPixels * DeviceDpi / 96f));
+
+        private static int ScalePx(Graphics g, int logicalPixels) =>
+            Math.Max(1, (int)Math.Round(logicalPixels * g.DpiX / 96f));
+
+        private void UpdateDpiMetrics()
+        {
+            _remoteFilter.Width = ScalePx(170);
+            _filterSpacer.Width = ScalePx(6);
+            _topPanel.Height = ScalePx(34);
+            _topPanel.Padding = new Padding(0, 0, 0, ScalePx(6));
+            _emptyState.Padding = new Padding(ScalePx(24));
+            _list.ItemHeight = ScalePx(40);
+            _list.Invalidate();
+        }
+
+        private void PopulateRemoteFilter()
+        {
+            var groups = new Dictionary<string, RemoteOption>(StringComparer.Ordinal);
+            foreach (var entry in _all)
+            {
+                string k = string.IsNullOrEmpty(entry.RemoteKind) ? "unknown" : entry.RemoteKind;
+                if (!groups.TryGetValue(k, out var opt))
+                {
+                    opt = new RemoteOption
+                    {
+                        Kind = k,
+                        Display = string.IsNullOrEmpty(entry.RemoteKindDisplay) ? k : entry.RemoteKindDisplay,
+                    };
+                    groups[k] = opt;
+                }
+                opt.Count++;
+            }
+
+            var sorted = new List<RemoteOption>(groups.Values);
+            sorted.Sort((a, b) => string.Compare(a.Display, b.Display, StringComparison.OrdinalIgnoreCase));
+
+            _remoteFilter.BeginUpdate();
+            _remoteFilter.Items.Clear();
+            _remoteFilter.Items.Add(new RemoteOption { Kind = null, Display = "All remotes", Count = _all.Count });
+            foreach (var opt in sorted) _remoteFilter.Items.Add(opt);
+            _remoteFilter.SelectedIndex = 0;
+            _remoteFilter.EndUpdate();
         }
 
         private static Point ComputeStartLocation(Size size)
@@ -137,11 +323,11 @@ namespace VsRecent
             using (var bgBrush = new SolidBrush(bg))
                 g.FillRectangle(bgBrush, e.Bounds);
 
-            const int leftPad = 8;
-            const int rightPad = 8;
-            const int pillHPad = 7;
-            const int pillH = 18;
-            const int pillRadius = 5;
+            int leftPad = ScalePx(g, 8);
+            int rightPad = ScalePx(g, 8);
+            int pillHPad = ScalePx(g, 7);
+            int pillH = ScalePx(g, 18);
+            int pillRadius = ScalePx(g, 5);
 
             using (var fontMain = new Font("Segoe UI", 10f, FontStyle.Regular))
             using (var fontSub = new Font("Segoe UI", 8.25f, FontStyle.Regular))
@@ -154,17 +340,17 @@ namespace VsRecent
                     Size.Empty, TextFormatFlags.NoPadding);
                 int pillW = pillTextSize.Width + pillHPad * 2;
                 int pillX = e.Bounds.Right - rightPad - pillW;
-                int pillY = e.Bounds.Top + 4;
+                int pillY = e.Bounds.Top + ScalePx(g, 4);
 
                 int textLeft = e.Bounds.Left + leftPad;
-                int mainMaxW = Math.Max(0, pillX - 6 - textLeft);
+                int mainMaxW = Math.Max(0, pillX - ScalePx(g, 6) - textLeft);
                 int subMaxW = Math.Max(0, e.Bounds.Right - rightPad - textLeft);
 
                 string main = TruncateToFit(g, entry.DisplayMain ?? "", fontMain, mainMaxW);
-                g.DrawString(main, fontMain, bMain, textLeft, e.Bounds.Top + 3);
+                g.DrawString(main, fontMain, bMain, textLeft, e.Bounds.Top + ScalePx(g, 3));
 
                 string sub = TruncateToFit(g, entry.DisplaySub ?? "", fontSub, subMaxW);
-                g.DrawString(sub, fontSub, bSub, textLeft, e.Bounds.Top + 22);
+                g.DrawString(sub, fontSub, bSub, textLeft, e.Bounds.Top + ScalePx(g, 22));
 
                 SmoothingMode prevSmooth = g.SmoothingMode;
                 g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -217,18 +403,27 @@ namespace VsRecent
 
         private void ApplyFilter()
         {
+            string kindFilter = null;
+            if (_remoteFilter != null && _remoteFilter.SelectedItem is RemoteOption opt && opt.Kind != null)
+                kindFilter = opt.Kind;
+
             string q = _filter.Text.Trim();
-            if (q.Length == 0)
+            string[] tokens = q.Length == 0
+                ? Array.Empty<string>()
+                : q.ToLowerInvariant().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (tokens.Length == 0 && kindFilter == null)
             {
                 _shown = _all;
             }
             else
             {
-                string[] tokens = q.ToLowerInvariant().Split(
-                    new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
                 var matched = new List<Entry>(_all.Count);
                 foreach (var entry in _all)
                 {
+                    if (kindFilter != null && !string.Equals(entry.RemoteKind, kindFilter, StringComparison.Ordinal))
+                        continue;
+
                     bool ok = true;
                     foreach (var t in tokens)
                     {
@@ -245,10 +440,24 @@ namespace VsRecent
 
             _list.BeginUpdate();
             _list.Items.Clear();
-            // ListBox.Items.Count drives owner-draw; the boxed values aren't shown.
-            for (int i = 0; i < _shown.Count; i++) _list.Items.Add(i);
+            foreach (var entry in _shown) _list.Items.Add(entry);
             if (_shown.Count > 0) _list.SelectedIndex = 0;
             _list.EndUpdate();
+
+            bool hasEntries = _shown.Count > 0;
+            _list.Visible = hasEntries;
+            _emptyState.Visible = !hasEntries;
+            if (!hasEntries)
+            {
+                if (!string.IsNullOrEmpty(_loadError))
+                    _emptyState.Text = "VS Code recent history is unavailable.\r\n\r\n" + _loadError;
+                else if (_all.Count == 0)
+                    _emptyState.Text = "No recent folders were found in VS Code.";
+                else
+                    _emptyState.Text = "No recent folders match the current filters.";
+                _emptyState.AccessibleName = _emptyState.Text;
+                _emptyState.AccessibleDescription = _emptyState.Text;
+            }
         }
 
         private void Filter_KeyDown(object sender, KeyEventArgs e)
@@ -289,7 +498,7 @@ namespace VsRecent
                     }
                     break;
                 case Keys.Enter:
-                    Launch();
+                    Launch(e.Control, e.Shift);
                     e.Handled = true; e.SuppressKeyPress = true;
                     break;
                 case Keys.Escape:
@@ -299,15 +508,18 @@ namespace VsRecent
             }
         }
 
-        private void Launch()
+        private void Launch(bool forceNewWindow = false, bool keepOpen = false)
         {
             int idx = _list.SelectedIndex;
             if (idx < 0 || idx >= _shown.Count) return;
             var entry = _shown[idx];
             try
             {
-                Launcher.OpenFolder(entry.FolderUri);
-                Application.Exit();
+                Launcher.OpenFolder(entry.FolderUri, forceNewWindow);
+                if (keepOpen)
+                    _filter.Focus();
+                else
+                    Application.Exit();
             }
             catch (Exception ex)
             {
@@ -319,17 +531,19 @@ namespace VsRecent
 
     internal static class Launcher
     {
-        public static void OpenFolder(string folderUri)
+        public static void OpenFolder(string folderUri, bool forceNewWindow = false)
         {
             string codeExe = FindCodeExe();
             var psi = new ProcessStartInfo
             {
                 FileName = codeExe,
-                Arguments = "--folder-uri \"" + folderUri + "\"",
                 UseShellExecute = true,
                 CreateNoWindow = true,
                 WindowStyle = ProcessWindowStyle.Hidden,
             };
+            if (forceNewWindow) psi.ArgumentList.Add("--new-window");
+            psi.ArgumentList.Add("--folder-uri");
+            psi.ArgumentList.Add(folderUri);
             Process.Start(psi);
         }
 
@@ -376,6 +590,58 @@ namespace VsRecent
             var (text, color) = Classify(e.FolderUri);
             e.PillText = text;
             e.PillColor = color;
+            var (kind, display) = GetKind(e.FolderUri);
+            e.RemoteKind = kind;
+            e.RemoteKindDisplay = display;
+        }
+
+        // Normalized kind classification used by the remote-filter dropdown
+        // and the searchable text index. Kept independent of Classify so the
+        // pill display can stay rich (e.g. "WSL: Ubuntu") while grouping is
+        // coarse (just "wsl" / "WSL").
+        public static (string kind, string display) GetKind(string folderUri)
+        {
+            if (string.IsNullOrEmpty(folderUri))
+                return ("unknown", "Unknown");
+
+            if (folderUri.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+                return ("local", "Local");
+
+            if (folderUri.StartsWith("vscode-remote://", StringComparison.OrdinalIgnoreCase))
+            {
+                string rest = folderUri.Substring("vscode-remote://".Length);
+                int slash = rest.IndexOf('/');
+                string authority = slash >= 0 ? rest.Substring(0, slash) : rest;
+                string decoded;
+                try { decoded = Uri.UnescapeDataString(authority); }
+                catch { decoded = authority; }
+
+                int plus = decoded.IndexOf('+');
+                string k = (plus >= 0 ? decoded.Substring(0, plus) : decoded).ToLowerInvariant();
+                switch (k)
+                {
+                    case "wsl":                return ("wsl", "WSL");
+                    case "ssh-remote":         return ("ssh", "SSH");
+                    case "dev-container":      return ("dev-container", "Dev Container");
+                    case "attached-container": return ("container", "Container");
+                    case "codespaces":         return ("codespace", "Codespace");
+                    case "tunnel":             return ("tunnel", "Tunnel");
+                    default:                   return (k, k.ToUpperInvariant());
+                }
+            }
+
+            if (folderUri.StartsWith("vscode-vfs://github", StringComparison.OrdinalIgnoreCase))
+                return ("github", "GitHub");
+            if (folderUri.StartsWith("vscode-vfs://", StringComparison.OrdinalIgnoreCase))
+                return ("vfs", "VFS");
+
+            int colon = folderUri.IndexOf(':');
+            if (colon > 0)
+            {
+                string scheme = folderUri.Substring(0, colon);
+                return (scheme.ToLowerInvariant(), scheme.ToUpperInvariant());
+            }
+            return ("unknown", "Unknown");
         }
 
         public static (string text, Color color) Classify(string folderUri)
@@ -471,14 +737,33 @@ namespace VsRecent
         {
             try
             {
+                Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
 
                 bool demo = args != null && Array.Exists(args,
                     a => string.Equals(a, "--demo", StringComparison.OrdinalIgnoreCase));
 
-                List<Entry> entries = demo ? DemoEntries() : LoadEntries();
-                using (var f = new MainForm(entries))
+                List<Entry> entries;
+                string loadError = null;
+                if (demo)
+                {
+                    entries = DemoEntries();
+                }
+                else
+                {
+                    try
+                    {
+                        entries = LoadEntries();
+                    }
+                    catch (Exception ex)
+                    {
+                        entries = new List<Entry>();
+                        loadError = ex.Message;
+                    }
+                }
+
+                using (var f = new MainForm(entries, loadError))
                 {
                     if (demo) f.Text = "VS Recent — demo";
                     Application.Run(f);
@@ -524,16 +809,16 @@ namespace VsRecent
 
                 string displayMain = !string.IsNullOrEmpty(label) ? label : DefaultLabel(folderUri);
                 string displaySub  = folderUri;
-                string searchKey   = ((displayMain ?? "") + " " + folderUri).ToLowerInvariant();
 
                 var entry = new Entry
                 {
                     FolderUri   = folderUri,
                     DisplayMain = displayMain,
                     DisplaySub  = displaySub,
-                    SearchKey   = searchKey,
                 };
                 RemoteClassifier.Apply(entry);
+                entry.SearchKey = ((displayMain ?? "") + " " + folderUri + " "
+                                   + (entry.RemoteKindDisplay ?? "")).ToLowerInvariant();
                 list.Add(entry);
             }
             return list;
@@ -570,9 +855,10 @@ namespace VsRecent
                     FolderUri   = uri,
                     DisplayMain = main,
                     DisplaySub  = uri,
-                    SearchKey   = (main + " " + uri).ToLowerInvariant(),
                 };
                 RemoteClassifier.Apply(entry);
+                entry.SearchKey = (main + " " + uri + " "
+                                   + (entry.RemoteKindDisplay ?? "")).ToLowerInvariant();
                 list.Add(entry);
             }
             return list;
