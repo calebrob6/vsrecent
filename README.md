@@ -79,13 +79,24 @@ focused.
 
 | Key                  | Action                                            |
 | -------------------- | ------------------------------------------------- |
-| Type                 | Filter label and URI using case-insensitive AND tokens |
+| Type                 | Filter label, URI, and remote name using case-insensitive AND tokens |
 | `Up` / `Down`        | Move highlight up / down without leaving the filter |
 | `PgUp` / `PgDn`      | Move highlight by 8 rows                          |
 | `Ctrl+Home` / `End`  | Jump to first / last visible entry                |
 | `Enter`              | Launch highlighted entry in VS Code, then close   |
+| `Ctrl+Enter`         | Launch in a new VS Code window, then close        |
+| `Shift+Enter`        | Launch and keep VS Recent open                    |
+| `Ctrl+Shift+Enter`   | Launch in a new window and keep VS Recent open    |
+| `Alt+R`              | Open the Remote dropdown                          |
 | Double-click         | Same as Enter on that row                         |
 | `Esc`                | Close without launching                           |
+
+### Filtering by remote
+
+The **Remote** dropdown lists each remote kind with its entry count. Its
+selection combines with the text filter. For example, select **WSL** and type
+`dotfiles` to show matching WSL entries. Remote names are also searchable, so
+queries such as `local foo` and `wsl ml` work without the dropdown.
 
 ## Launch shortcuts
 
