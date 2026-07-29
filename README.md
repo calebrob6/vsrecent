@@ -157,3 +157,7 @@ Pin `vsrecent.exe` to the taskbar to launch it with the corresponding
   2. `%PROGRAMFILES%\Microsoft VS Code\Code.exe`
   3. `%PROGRAMFILES(X86)%\Microsoft VS Code\Code.exe`
   4. `code` on `PATH`
+
+## License
+
+[MIT](LICENSE)

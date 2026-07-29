@@ -14,6 +14,10 @@
     <ApplicationIcon>vsrecent.ico</ApplicationIcon>
 
     <Version>0.2.0</Version>
+    <Authors>Caleb Robinson</Authors>
+    <Copyright>Copyright (c) 2026 Caleb Robinson</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/calebrob6/vsrecent</RepositoryUrl>
     <Product>VS Recent</Product>
     <Description>Tiny launcher for VSCode "Open Recent" projects.</Description>
 
