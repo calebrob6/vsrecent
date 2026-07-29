@@ -1,6 +1,6 @@
 param(
     [string]$Hotkey = "CTRL+ALT+R",
-    [string]$ExePath = "C:\Users\davrob\apps\vsrecent\vsrecent.exe",
+    [string]$ExePath = (Join-Path $env:LOCALAPPDATA "Programs\VS Recent\vsrecent.exe"),
     [string]$ShortcutName = "VS Recent"
 )
 
