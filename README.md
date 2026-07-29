@@ -28,6 +28,23 @@ Download the executable for your architecture from the
 The executables are unsigned. If Windows SmartScreen blocks the first launch,
 select *More info > Run anyway*.
 
+## Install
+
+Install the latest release:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/calebrob6/vsrecent/main/install.ps1)))
+```
+
+It detects x64 or ARM64, downloads the latest release to
+`%LOCALAPPDATA%\Programs\VS Recent`, and creates a Start Menu shortcut. The
+installation does not require administrator rights.
+
+When running `install.ps1` from a checkout, use `-Version 0.2.0` to install a
+specific release, `-Hotkey "CTRL+ALT+R"` to assign a shortcut hotkey,
+`-NoShortcut` to install only the executable, or `-Launch` to run VS Recent
+after installation.
+
 ## Files
 
 | File          | Purpose                                                       |
@@ -38,6 +55,7 @@ select *More info > Run anyway*.
 | `vsrecent.ico`| App icon (multi-size, embedded in EXE)                        |
 | `_make_icon.py` | Regenerates `vsrecent.ico` (requires Python + Pillow)       |
 | `build.cmd`   | Publishes for the host architecture                           |
+| `install.ps1` | Downloads and installs the latest release for the current user |
 | `install_hotkey.ps1` | Creates a Start-Menu shortcut with a global hotkey     |
 | `vsrecent_hotkey.ahk`| AutoHotkey v2 global `Win+key` shortcut                  |
 | `.github/workflows/release.yml` | CI: builds win-x64 + win-arm64 and publishes a GitHub Release on `v*` tag |
