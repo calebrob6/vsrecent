@@ -258,8 +258,8 @@ namespace VsRecent
         private int ScalePx(int logicalPixels) =>
             Math.Max(1, (int)Math.Round(logicalPixels * DeviceDpi / 96f));
 
-        private static int ScalePx(Graphics g, int logicalPixels) =>
-            Math.Max(1, (int)Math.Round(logicalPixels * g.DpiX / 96f));
+        private Font CreateDrawFont(float pointSize, FontStyle style) =>
+            new Font("Segoe UI", pointSize * DeviceDpi / 72f, style, GraphicsUnit.Pixel);
 
         private void UpdateDpiMetrics()
         {
@@ -323,15 +323,15 @@ namespace VsRecent
             using (var bgBrush = new SolidBrush(bg))
                 g.FillRectangle(bgBrush, e.Bounds);
 
-            int leftPad = ScalePx(g, 8);
-            int rightPad = ScalePx(g, 8);
-            int pillHPad = ScalePx(g, 7);
-            int pillH = ScalePx(g, 18);
-            int pillRadius = ScalePx(g, 5);
+            int leftPad = ScalePx(8);
+            int rightPad = ScalePx(8);
+            int pillHPad = ScalePx(7);
+            int pillH = ScalePx(18);
+            int pillRadius = ScalePx(5);
 
-            using (var fontMain = new Font("Segoe UI", 10f, FontStyle.Regular))
-            using (var fontSub = new Font("Segoe UI", 8.25f, FontStyle.Regular))
-            using (var fontPill = new Font("Segoe UI", 8f, FontStyle.Bold))
+            using (var fontMain = CreateDrawFont(10f, FontStyle.Regular))
+            using (var fontSub = CreateDrawFont(8.25f, FontStyle.Regular))
+            using (var fontPill = CreateDrawFont(8f, FontStyle.Bold))
             using (var bMain = new SolidBrush(fgMain))
             using (var bSub = new SolidBrush(fgSub))
             {
@@ -340,17 +340,17 @@ namespace VsRecent
                     Size.Empty, TextFormatFlags.NoPadding);
                 int pillW = pillTextSize.Width + pillHPad * 2;
                 int pillX = e.Bounds.Right - rightPad - pillW;
-                int pillY = e.Bounds.Top + ScalePx(g, 4);
+                int pillY = e.Bounds.Top + ScalePx(4);
 
                 int textLeft = e.Bounds.Left + leftPad;
-                int mainMaxW = Math.Max(0, pillX - ScalePx(g, 6) - textLeft);
+                int mainMaxW = Math.Max(0, pillX - ScalePx(6) - textLeft);
                 int subMaxW = Math.Max(0, e.Bounds.Right - rightPad - textLeft);
 
                 string main = TruncateToFit(g, entry.DisplayMain ?? "", fontMain, mainMaxW);
-                g.DrawString(main, fontMain, bMain, textLeft, e.Bounds.Top + ScalePx(g, 3));
+                g.DrawString(main, fontMain, bMain, textLeft, e.Bounds.Top + ScalePx(3));
 
                 string sub = TruncateToFit(g, entry.DisplaySub ?? "", fontSub, subMaxW);
-                g.DrawString(sub, fontSub, bSub, textLeft, e.Bounds.Top + ScalePx(g, 22));
+                g.DrawString(sub, fontSub, bSub, textLeft, e.Bounds.Top + ScalePx(22));
 
                 SmoothingMode prevSmooth = g.SmoothingMode;
                 g.SmoothingMode = SmoothingMode.AntiAlias;
