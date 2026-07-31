@@ -67,13 +67,31 @@ namespace VsRecent
         }
     }
 
+    internal sealed class CueTextBox : TextBox
+    {
+        private const int EM_SETCUEBANNER = 0x1501;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern IntPtr SendMessage(
+            IntPtr hWnd, int msg, IntPtr wParam, string lParam);
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            SendMessage(Handle, EM_SETCUEBANNER, new IntPtr(1), PlaceholderText);
+        }
+    }
+
     internal sealed class MainForm : Form
     {
-        private readonly TextBox _filter;
+        private readonly CueTextBox _filter;
         private readonly DpiComboBox _remoteFilter;
         private readonly Panel _filterSpacer;
         private readonly Panel _topPanel;
         private readonly Panel _headerSeparator;
+        private readonly Panel _footerPanel;
+        private readonly Panel _footerSeparator;
+        private readonly Label _shortcutFooter;
         private readonly ListBox _list;
         private readonly Label _emptyState;
         private readonly List<Entry> _all;
@@ -112,7 +130,7 @@ namespace VsRecent
             Font = new Font("Segoe UI", 10f);
             Padding = new Padding(8);
 
-            _filter = new TextBox
+            _filter = new CueTextBox
             {
                 Dock = DockStyle.Fill,
                 BorderStyle = BorderStyle.FixedSingle,
@@ -120,6 +138,7 @@ namespace VsRecent
                 ForeColor = Color.White,
                 Font = CreateControlFont(12f),
                 AutoSize = false,
+                PlaceholderText = "Type to filter",
                 AccessibleName = "Filter recent folders",
                 AccessibleDescription = "Type to filter recent folders by label, URI, or remote kind.",
             };
@@ -238,9 +257,36 @@ namespace VsRecent
             contentPanel.Controls.Add(_list);
             contentPanel.Controls.Add(_emptyState);
 
+            _shortcutFooter = new Label
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(37, 37, 38),
+                ForeColor = Color.FromArgb(155, 155, 155),
+                Font = CreateControlFont(8.25f),
+                Text = "Up/Down Select | Enter Open | Ctrl+Enter New | Shift+Enter Keep | Alt+R Remote | Esc Close",
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = true,
+                AccessibleName = "Keyboard shortcuts: Up or Down navigates. Enter opens. Control Enter opens a new window. Shift Enter keeps VS Recent open. Alt R filters remotes. Escape closes.",
+            };
+            _footerSeparator = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 1,
+                BackColor = Color.FromArgb(63, 63, 70),
+            };
+            _footerPanel = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 25,
+                BackColor = _shortcutFooter.BackColor,
+            };
+            _footerPanel.Controls.Add(_shortcutFooter);
+            _footerPanel.Controls.Add(_footerSeparator);
+
             // Fill control must be added BEFORE the docked-top controls so it
-            // ends up filling the remaining space below them.
+            // ends up filling the remaining space between the header and footer.
             Controls.Add(contentPanel);
+            Controls.Add(_footerPanel);
             Controls.Add(_headerSeparator);
             Controls.Add(_topPanel);
 
@@ -309,6 +355,7 @@ namespace VsRecent
                 _uiMetricsDpi = DeviceDpi;
                 UpdateControlFont(_filter, 12f);
                 UpdateControlFont(_remoteFilter, 12f);
+                UpdateControlFont(_shortcutFooter, 8.25f);
                 _remoteFilter.RefreshNativeMetrics();
             }
 
@@ -317,6 +364,9 @@ namespace VsRecent
             _topPanel.Padding = new Padding(0, 0, 0, ScalePx(6));
             _topPanel.Height = _remoteFilter.PreferredHeight + _topPanel.Padding.Bottom;
             _headerSeparator.Height = ScalePx(1);
+            _footerPanel.Height = ScalePx(25);
+            _footerSeparator.Height = ScalePx(1);
+            _shortcutFooter.Padding = new Padding(ScalePx(6), 0, ScalePx(6), 0);
             _emptyState.Padding = new Padding(ScalePx(24));
             _list.ItemHeight = ScalePx(40);
             _list.Invalidate();
