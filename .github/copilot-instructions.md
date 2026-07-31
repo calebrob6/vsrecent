@@ -18,7 +18,7 @@
 - `Sqlite` is a deliberately minimal P/Invoke wrapper around Windows' built-in `winsqlite3.dll`. The live VS Code database is opened read-only. If that read fails, `Program.ReadJson` snapshots the database together with any `-wal` and `-shm` files into a process-specific temp directory and retries there.
 - `MainForm` is an imperative, code-only WinForms UI. It combines an owner-drawn recent-folder list, an AND-of-tokens text filter, and a normalized remote-kind dropdown. `_all` is the source collection and `_shown` is the filtered view. `ListBox.Items` contains the matching `Entry` objects so their `ToString()` values provide accessible item text while owner drawing controls the visuals.
 - `RemoteClassifier` has two related views of a URI: `Classify` produces the detailed pill text/color, while `GetKind` produces the stable normalized key and display name used for grouping and searching.
-- `Launcher` resolves per-user and system VS Code installs before falling back to `code` on `PATH`, then starts VS Code detached with `--folder-uri`.
+- `Launcher` resolves per-user and system VS Code installs before falling back to `code` on `PATH`, then starts VS Code with `--folder-uri` and restores an existing matching hidden window.
 
 ## Repository-specific conventions
 
@@ -30,4 +30,5 @@
 - Preserve the owner-drawn list invariants documented in `FlickerFreeListBox`: `ResizeRedraw` prevents stale right-anchored pills, while WinForms double buffering makes the pills disappear. Docking order in `MainForm` is also intentional. Scale custom-drawn dimensions and pixel-unit fonts from the form's `DeviceDpi` through `ScalePx` and `CreateDrawFont`; `DrawItemEventArgs.Graphics.DpiX` can report the system DPI instead of the monitor DPI on mixed-DPI desktops.
 - UI changes are made directly in `MainForm`; there are no designer or `.resx` files. Continue using explicit `System.*` imports because implicit usings and nullable annotations are disabled.
 - Native SQLite handles must always be finalized and closed. Keep database access read-only so VS Code can continue using the live database concurrently.
+- Keep VS Code launch detached, but never set `ProcessStartInfo.WindowStyle` to `Hidden` or `CreateNoWindow`; either setting can leave newly created WSL windows invisible.
 - Startup failures are surfaced through a top-level message box; launch failures stay attached to the form. Preserve these user-visible error paths rather than silently returning.

@@ -9,6 +9,8 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Net;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
 
@@ -631,20 +633,90 @@ namespace VsRecent
 
     internal static class Launcher
     {
+        private const int SW_RESTORE = 9;
+
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern int GetWindowTextLength(IntPtr hWnd);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetWindowText(
+            IntPtr hWnd, StringBuilder text, int maxCount);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int command);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
         public static void OpenFolder(string folderUri, bool forceNewWindow = false)
         {
             string codeExe = FindCodeExe();
+            IntPtr hiddenWindow = FindHiddenCodeWindow(folderUri);
             var psi = new ProcessStartInfo
             {
                 FileName = codeExe,
                 UseShellExecute = true,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
             };
             if (forceNewWindow) psi.ArgumentList.Add("--new-window");
             psi.ArgumentList.Add("--folder-uri");
             psi.ArgumentList.Add(folderUri);
             Process.Start(psi);
+
+            if (hiddenWindow != IntPtr.Zero)
+            {
+                ShowWindow(hiddenWindow, SW_RESTORE);
+                SetForegroundWindow(hiddenWindow);
+            }
+        }
+
+        private static IntPtr FindHiddenCodeWindow(string folderUri)
+        {
+            string folderName = FolderNameFromUri(folderUri);
+            if (string.IsNullOrEmpty(folderName)) return IntPtr.Zero;
+
+            IntPtr match = IntPtr.Zero;
+            EnumWindows((hWnd, lParam) =>
+            {
+                if (IsWindowVisible(hWnd)) return true;
+
+                int length = GetWindowTextLength(hWnd);
+                if (length == 0) return true;
+
+                var title = new StringBuilder(length + 1);
+                GetWindowText(hWnd, title, title.Capacity);
+                string value = title.ToString();
+                if (value.EndsWith(" - Visual Studio Code", StringComparison.OrdinalIgnoreCase)
+                    && value.IndexOf(folderName, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    match = hWnd;
+                    return false;
+                }
+                return true;
+            }, IntPtr.Zero);
+            return match;
+        }
+
+        private static string FolderNameFromUri(string folderUri)
+        {
+            try
+            {
+                string path = new Uri(folderUri).AbsolutePath.TrimEnd('/');
+                int slash = path.LastIndexOf('/');
+                string name = slash >= 0 ? path.Substring(slash + 1) : path;
+                return Uri.UnescapeDataString(name);
+            }
+            catch (UriFormatException)
+            {
+                return null;
+            }
         }
 
         public static string FindCodeExe()

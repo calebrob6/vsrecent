@@ -14,8 +14,8 @@ history. Type to filter, then press Enter or double-click an entry to open it.
   WSL, SSH, Dev Containers, Codespaces, and GitHub. Each row has a
   pill showing the remote kind (`LOCAL`, `WSL: Ubuntu`, `SSH: hostname`,
   `DEV CONTAINER`, `CODESPACE`, or `GITHUB`).
-- Starts `Code.exe --folder-uri "<uri>"` and exits without terminating the
-  VS Code window.
+- Starts `Code.exe --folder-uri "<uri>"`, restores an existing matching window
+  if it was hidden, and exits without terminating VS Code.
 
 ## Download
 
@@ -51,7 +51,7 @@ It detects x64 or ARM64, downloads the latest release to
 `%LOCALAPPDATA%\Programs\VS Recent`, and creates a Start Menu shortcut. The
 installation does not require administrator rights.
 
-When running `install.ps1` from a checkout, use `-Version 0.2.0` to install a
+When running `install.ps1` from a checkout, use `-Version 0.3.0` to install a
 specific release, `-Hotkey "CTRL+ALT+R"` to assign a shortcut hotkey,
 `-NoShortcut` to install only the executable, or `-Launch` to run VS Recent
 after installation.
