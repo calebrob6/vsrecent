@@ -3,6 +3,10 @@
 VS Recent is a Windows launcher for folders in VS Code's **Open Recent**
 history. Type to filter, then press Enter or double-click an entry to open it.
 
+A tiny tool in the spirit of Scott Hanselman's
+[Tiny Tool Town](https://www.tinytooltown.com/) — made for an audience of one,
+shared in case it is useful to anyone else.
+
 ![VS Recent demo screenshot](images/screenshot.png)
 
 - Self-contained .NET 9 WinForms executable for **x64** and **ARM64** Windows.
