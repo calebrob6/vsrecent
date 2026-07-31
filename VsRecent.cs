@@ -59,17 +59,28 @@ namespace VsRecent
         }
     }
 
+    internal sealed class DpiComboBox : ComboBox
+    {
+        public void RefreshNativeMetrics()
+        {
+            if (IsHandleCreated) RecreateHandle();
+        }
+    }
+
     internal sealed class MainForm : Form
     {
         private readonly TextBox _filter;
-        private readonly ComboBox _remoteFilter;
+        private readonly DpiComboBox _remoteFilter;
         private readonly Panel _filterSpacer;
         private readonly Panel _topPanel;
+        private readonly Panel _headerSeparator;
         private readonly ListBox _list;
         private readonly Label _emptyState;
         private readonly List<Entry> _all;
         private readonly string _loadError;
+        private readonly List<Font> _ownedControlFonts = new List<Font>();
         private List<Entry> _shown;
+        private int _uiMetricsDpi;
 
         public MainForm(List<Entry> entries, string loadError = null)
         {
@@ -107,12 +118,13 @@ namespace VsRecent
                 BorderStyle = BorderStyle.FixedSingle,
                 BackColor = Color.FromArgb(45, 45, 48),
                 ForeColor = Color.White,
-                Font = new Font("Segoe UI", 12f),
+                Font = CreateControlFont(12f),
+                AutoSize = false,
                 AccessibleName = "Filter recent folders",
                 AccessibleDescription = "Type to filter recent folders by label, URI, or remote kind.",
             };
 
-            _remoteFilter = new ComboBox
+            _remoteFilter = new DpiComboBox
             {
                 Dock = DockStyle.Right,
                 Width = 170,
@@ -120,7 +132,7 @@ namespace VsRecent
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(63, 63, 70),
                 ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9.5f),
+                Font = CreateControlFont(12f),
                 TabStop = true,
                 AccessibleName = "Remote kind",
                 AccessibleDescription = "Filter by remote kind. Press Alt+R to open this list.",
@@ -176,6 +188,13 @@ namespace VsRecent
             _topPanel.Controls.Add(_filterSpacer);
             _topPanel.Controls.Add(_remoteFilter);
 
+            _headerSeparator = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 1,
+                BackColor = Color.FromArgb(63, 63, 70),
+            };
+
             _list = new FlickerFreeListBox
             {
                 Dock = DockStyle.Fill,
@@ -219,9 +238,10 @@ namespace VsRecent
             contentPanel.Controls.Add(_list);
             contentPanel.Controls.Add(_emptyState);
 
-            // Fill control must be added BEFORE the docked-top control so it
-            // ends up filling the remaining space below it.
+            // Fill control must be added BEFORE the docked-top controls so it
+            // ends up filling the remaining space below them.
             Controls.Add(contentPanel);
+            Controls.Add(_headerSeparator);
             Controls.Add(_topPanel);
 
             _filter.TextChanged += (s, e) => ApplyFilter();
@@ -238,7 +258,7 @@ namespace VsRecent
                 _filter.Focus();
             };
             Shown += (s, e) => _filter.Focus();
-            DpiChanged += (s, e) => UpdateDpiMetrics();
+            DpiChanged += (s, e) => BeginInvoke(new Action(UpdateDpiMetrics));
 
             PopulateRemoteFilter();
             ApplyFilter();
@@ -261,12 +281,42 @@ namespace VsRecent
         private Font CreateDrawFont(float pointSize, FontStyle style) =>
             new Font("Segoe UI", pointSize * DeviceDpi / 72f, style, GraphicsUnit.Pixel);
 
+        private Font CreateControlFont(float pointSize)
+        {
+            var font = CreateDrawFont(pointSize, FontStyle.Regular);
+            _ownedControlFonts.Add(font);
+            return font;
+        }
+
+        private void UpdateControlFont(Control control, float pointSize)
+        {
+            control.Font = CreateControlFont(pointSize);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                foreach (var font in _ownedControlFonts) font.Dispose();
+            }
+        }
+
         private void UpdateDpiMetrics()
         {
+            if (_uiMetricsDpi != DeviceDpi)
+            {
+                _uiMetricsDpi = DeviceDpi;
+                UpdateControlFont(_filter, 12f);
+                UpdateControlFont(_remoteFilter, 12f);
+                _remoteFilter.RefreshNativeMetrics();
+            }
+
             _remoteFilter.Width = ScalePx(170);
             _filterSpacer.Width = ScalePx(6);
-            _topPanel.Height = ScalePx(34);
             _topPanel.Padding = new Padding(0, 0, 0, ScalePx(6));
+            _topPanel.Height = _remoteFilter.PreferredHeight + _topPanel.Padding.Bottom;
+            _headerSeparator.Height = ScalePx(1);
             _emptyState.Padding = new Padding(ScalePx(24));
             _list.ItemHeight = ScalePx(40);
             _list.Invalidate();
