@@ -839,7 +839,7 @@ unsafe fn update_control_font(window: HWND) {
     }
     let footer_font = unsafe {
         CreateFontW(
-            -(750 * dpi / 7200),
+            -(700 * dpi / 7200),
             0,
             0,
             0,
