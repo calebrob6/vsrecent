@@ -573,8 +573,8 @@
       <h1>Open a recent VS Code folder, fast</h1>
       <div class="intro-layout">
         <div class="intro-copy">
-          <p class="summary">I built VS Recent around one shortcut: press <code>Win+1</code>, type part of a folder name, and press Enter. It reads VS Code's Open Recent history and gets out of the way.</p>
-          <p class="summary">The app is a small native Rust executable for Windows on ARM and x64. It also understands WSL, SSH, Dev Containers, Codespaces, tunnels, and GitHub repositories.</p>
+          <p class="summary">I wanted a hotkey that would open a recent VS Code folder. Press <code>Win+1</code>, type a few characters, hit Enter.</p>
+          <p class="summary">VS Recent is a small native Rust executable for Windows on ARM and x64. It can open local folders plus WSL, SSH, Dev Containers, Codespaces, tunnels, and GitHub repositories.</p>
           <div class="actions" id="download">
             <a class="button" href="https://github.com/calebrob6/vsrecent/releases/latest/download/vsrecent-win-arm64.exe">Download ARM64</a>
             <a class="button secondary" href="https://github.com/calebrob6/vsrecent/releases/latest/download/vsrecent-win-x64.exe">Download x64</a>
@@ -603,9 +603,9 @@
 
     <section id="startup" aria-labelledby="startup-heading">
       <p class="kicker">Startup</p>
-      <h2 id="startup-heading">How the Rust and C# startup paths differ</h2>
-      <p>The first version used C# and WinForms. It worked. Its window took 359-390 ms to appear, which was slow enough to feel out of step with a keyboard shortcut.</p>
-      <p>The Rust version took 63-85 ms on the same machine. It starts less software and paints the picker before reading VS Code history.</p>
+      <h2 id="startup-heading">Rust vs. C# startup</h2>
+      <p>The first version was C# and WinForms. It did the job, but the window took 359-390 ms to appear. That is a long wait for a hotkey.</p>
+      <p>The Rust version took 63-85 ms on the same machine. It starts less software, and it draws the window before it reads VS Code history.</p>
 
       <h3 id="timing-heading">Measured startup time</h3>
       <p>The dashed line marks 100 ms, the point where a response starts to lose its feeling of immediacy.</p>
@@ -649,20 +649,20 @@
     </section>
 
     <section aria-labelledby="old-heading">
-      <h2 id="old-heading">The C# version waited for everything</h2>
-      <p>The old startup path did all of its work in order on the main thread:</p>
+      <h2 id="old-heading">What C# did before the window appeared</h2>
+      <p>The C# build ran this work on the UI thread, one step after another:</p>
       <ol class="sequence">
         <li><strong>Start .NET and WinForms.</strong><span>The self-contained executable loads CoreCLR, managed code support, garbage collection, and the WinForms framework.</span></li>
         <li><strong>Read the VS Code database.</strong><span><code>LoadEntries()</code> opens SQLite before a form exists.</span></li>
         <li><strong>Prepare every row.</strong><span>The app parses JSON, classifies remote URIs, creates labels, and builds the text used for searching.</span></li>
         <li><strong>Build the form.</strong><span>WinForms creates its controls, fonts, layout rules, event handlers, and drawing state.</span></li>
-        <li><strong>Paint.</strong><span><code>Application.Run(form)</code> finally lets the window appear.</span></li>
+        <li><strong>Paint.</strong><span><code>Application.Run(form)</code> is what finally shows the window.</span></li>
       </ol>
     </section>
 
     <section aria-labelledby="new-heading">
-      <h2 id="new-heading">The Rust version paints first</h2>
-      <p>The current startup path only does what is needed to put a window on screen:</p>
+      <h2 id="new-heading">What Rust does before the window appears</h2>
+      <p>The Rust build shows a window first, then loads history:</p>
       <ol class="sequence">
         <li><strong>Load the native executable.</strong><span>Windows maps a roughly 250 KB program. There is no managed runtime to start.</span></li>
         <li><strong>Create five Win32 controls.</strong><span>The filter, remote menu, list, separator, and footer are native Windows controls.</span></li>
@@ -674,25 +674,25 @@
     <section aria-labelledby="size-heading">
       <h2 id="size-heading">Fifty megabytes became 250 kilobytes</h2>
       <p>The old x64 release was 50.4 MB because it carried the .NET runtime and WinForms inside one self-contained file. That saved users from installing .NET, but the program still had to find and start the embedded runtime.</p>
-      <p>The Rust x64 release is about 250 KB. It contains the app and JSON parser, then uses Windows for controls, drawing, SQLite, and process launching. A smaller file gives the loader, filesystem cache, and antivirus scanner less to inspect.</p>
-      <p>File size is only part of the result. Windows does not read every byte at startup. Showing the window before opening SQLite makes the larger difference to how the app feels.</p>
+      <p>The Rust x64 release is about 250 KB. It contains the app and JSON parser, then uses Windows for controls, drawing, SQLite, and process launching.</p>
+      <p>Windows does not read every byte of an executable at startup, so the size cut is not the whole story. The bigger change is that SQLite now happens after the window is already on screen.</p>
     </section>
 
     <section aria-labelledby="same-heading">
       <h2 id="same-heading">SQLite stayed the same</h2>
-      <p>Both versions call Windows' <code>winsqlite3.dll</code>, open the database read-only, parse the same JSON, preserve the same folder URIs, and launch VS Code with <code>--folder-uri</code>. The Rust rewrite did not make that work vanish. It moved the work until after the first frame.</p>
+      <p>Both versions call Windows' <code>winsqlite3.dll</code>, open the database read-only, parse the same JSON, keep the same folder URIs, and launch VS Code with <code>--folder-uri</code>. Rust still does that work. It just does it after the first frame.</p>
     </section>
 
     <section aria-labelledby="measurement-heading">
-      <h2 id="measurement-heading">About the timing</h2>
-      <p>These are warm launches on one Windows machine. That matches how I use the app during the day and avoids much of the noise from disk caches, first-time extraction, and Defender scans.</p>
-      <p>The clock stops when the window appears. The list may show "Loading recent folders..." for a moment while the worker finishes. This measures the pause after the hotkey, not the time until every row is ready.</p>
-      <p>Every code change now gets the same check. A 50-run ARM64 test after adding single-instance activation moved the median from 66.18 ms to 66.99 ms.</p>
+      <h2 id="measurement-heading">How I timed this</h2>
+      <p>These are warm launches on one Windows machine. That is closer to hitting <code>Win+1</code> a few times in a workday than to a reboot-and-measure test.</p>
+      <p>The clock stops when the window appears. The list can still say "Loading recent folders..." for a moment. So this is hotkey-to-window time, not time until every row is filled in.</p>
+      <p>I re-run the same benchmark on later changes. After adding single-instance activation, a 50-run ARM64 test moved the median from 66.18 ms to 66.99 ms.</p>
     </section>
 
     <section aria-labelledby="tradeoff-heading">
-      <h2 id="tradeoff-heading">Cost of the Win32 approach</h2>
-      <p>WinForms used to handle layout, events, control lifetime, accessibility, DPI scaling, and much of the drawing. The Rust version owns native window messages, raw handles, GDI objects, theming, DPI changes, and cleanup. The picker starts much faster, and the code needs more care.</p>
+      <h2 id="tradeoff-heading">The Win32 version is more work to maintain</h2>
+      <p>WinForms handled layout, events, control lifetime, accessibility, DPI scaling, and a lot of the drawing. In the Rust version I have to do those myself: window messages, raw handles, GDI objects, theming, DPI changes, and cleanup. The picker starts faster. The UI code is also easier to break.</p>
     </section>
   </main>
 
