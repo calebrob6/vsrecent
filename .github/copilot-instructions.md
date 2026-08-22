@@ -6,6 +6,7 @@
 - `build.cmd` is the canonical local release build. It runs `cargo build --release --locked` and copies the executable to `publish\vsrecent.exe`.
 - For a compile and test check, run `cargo test`.
 - For a UI smoke test that does not depend on local VS Code history, run `cargo run --release -- --demo`.
+- For every pull request, build optimized binaries from both `main` and the PR branch with the same architecture, toolchain, and machine. Run `scripts\benchmark-startup.ps1` against those binaries and report the median, p95, and change in the PR.
 - `.github\workflows\release.yml` builds `x86_64-pc-windows-msvc` on `windows-latest` and `aarch64-pc-windows-msvc` on `windows-11-arm`.
 - Pull requests build both architectures. A `v*` tag additionally creates a GitHub Release containing `vsrecent-win-x64.exe` and `vsrecent-win-arm64.exe`.
 - WinGet uses the portable package ID `calebrob6.VSRecent`. Submission-ready manifests live under `winget\manifests`; each release needs a new version directory with both release URLs and SHA-256 hashes.
