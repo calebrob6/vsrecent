@@ -3,18 +3,23 @@
 mod sqlite;
 
 use serde_json::Value;
+use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use windows_sys::Win32::Foundation::{COLORREF, GetLastError, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    CLIP_DEFAULT_PRECIS, COLOR_WINDOW, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET,
-    DEFAULT_PITCH, DEFAULT_QUALITY, DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER,
-    DeleteObject, DrawTextW, FF_DONTCARE, FW_NORMAL, FillRect, HFONT, InvalidateRect,
-    OUT_DEFAULT_PRECIS, SelectObject, SetBkMode, SetTextColor, TRANSPARENT, UpdateWindow,
+    CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH,
+    DEFAULT_QUALITY, DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteObject,
+    DrawTextW, FF_DONTCARE, FW_NORMAL, FillRect, GetDC, HBRUSH, HFONT, InvalidateRect,
+    OUT_DEFAULT_PRECIS, ReleaseDC, SelectObject, SetBkColor, SetBkMode, SetTextColor, TRANSPARENT,
+    UpdateWindow,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::UI::Controls::{DRAWITEMSTRUCT, EM_SETCUEBANNER, ODS_SELECTED};
+use windows_sys::Win32::UI::Controls::{
+    DRAWITEMSTRUCT, EM_SETSEL, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx,
+    ODS_SELECTED,
+};
 use windows_sys::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow, SetProcessDpiAwarenessContext,
 };
@@ -22,14 +27,51 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, SetFocus, VK_CONTROL, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME, VK_NEXT, VK_PRIOR,
     VK_R, VK_RETURN, VK_SHIFT, VK_UP,
 };
-use windows_sys::Win32::UI::Shell::ShellExecuteW;
+use windows_sys::Win32::UI::Shell::{
+    DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass, ShellExecuteW,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 const ID_FILTER: usize = 100;
 const ID_LIST: usize = 101;
 const ID_REMOTE: usize = 102;
+const ID_FOOTER: usize = 103;
+const ID_FOOTER_SEPARATOR: usize = 104;
 const WM_ENTRIES_LOADED: u32 = WM_APP + 1;
 const WM_LAUNCH_SELECTED: u32 = WM_APP + 2;
+const SS_CENTERIMAGE: u32 = 0x0000_0200;
+const SS_ENDELLIPSIS: u32 = 0x0000_4000;
+const SS_ETCHEDHORZ: u32 = 0x0000_0010;
+const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+const RRF_RT_REG_DWORD: u32 = 0x0000_0018;
+
+#[link(name = "advapi32")]
+unsafe extern "system" {
+    fn RegGetValueW(
+        key: *mut c_void,
+        subkey: *const u16,
+        value: *const u16,
+        flags: u32,
+        value_type: *mut u32,
+        data: *mut c_void,
+        data_size: *mut u32,
+    ) -> i32;
+}
+
+#[link(name = "dwmapi")]
+unsafe extern "system" {
+    fn DwmSetWindowAttribute(
+        window: HWND,
+        attribute: u32,
+        value: *const c_void,
+        value_size: u32,
+    ) -> i32;
+}
+
+#[link(name = "uxtheme")]
+unsafe extern "system" {
+    fn SetWindowTheme(window: HWND, sub_app_name: *const u16, sub_id_list: *const u16) -> i32;
+}
 
 #[derive(Clone, Debug)]
 struct Entry {
@@ -44,12 +86,49 @@ struct AppState {
     filter: HWND,
     remote_filter: HWND,
     list: HWND,
+    footer: HWND,
+    footer_separator: HWND,
     entries: Vec<Entry>,
     shown: Vec<usize>,
     remote_keys: Vec<Option<String>>,
     load_error: Option<String>,
     alive: Arc<AtomicBool>,
     font: HFONT,
+    footer_font: HFONT,
+    theme: Theme,
+    window_brush: HBRUSH,
+    control_brush: HBRUSH,
+}
+
+#[derive(Clone, Copy)]
+struct Theme {
+    dark: bool,
+    window: COLORREF,
+    control: COLORREF,
+    text: COLORREF,
+    muted: COLORREF,
+}
+
+impl Theme {
+    fn light() -> Self {
+        Self {
+            dark: false,
+            window: rgb(245, 245, 245),
+            control: rgb(255, 255, 255),
+            text: rgb(25, 25, 28),
+            muted: rgb(96, 96, 96),
+        }
+    }
+
+    fn dark() -> Self {
+        Self {
+            dark: true,
+            window: rgb(30, 30, 30),
+            control: rgb(37, 37, 38),
+            text: rgb(232, 232, 232),
+            muted: rgb(165, 165, 165),
+        }
+    }
 }
 
 static CLASS_NAME: &[u16] = &[
@@ -83,6 +162,12 @@ fn main() {
 fn run() -> Result<(), String> {
     unsafe {
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        InitCommonControlsEx(&INITCOMMONCONTROLSEX {
+            dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
+            dwICC: ICC_STANDARD_CLASSES,
+        });
+        let arguments: Vec<String> = std::env::args().collect();
+        let theme = requested_theme(&arguments).unwrap_or_else(system_theme);
         let instance = GetModuleHandleW(std::ptr::null());
         let cursor = LoadCursorW(std::ptr::null_mut(), IDC_ARROW);
         let icon = LoadIconW(instance, 1 as *const u16);
@@ -92,7 +177,7 @@ fn run() -> Result<(), String> {
             hInstance: instance,
             hIcon: icon,
             hCursor: cursor,
-            hbrBackground: (COLOR_WINDOW + 1) as _,
+            hbrBackground: std::ptr::null_mut(),
             lpszClassName: CLASS_NAME.as_ptr(),
             ..std::mem::zeroed()
         };
@@ -105,12 +190,18 @@ fn run() -> Result<(), String> {
             filter: std::ptr::null_mut(),
             remote_filter: std::ptr::null_mut(),
             list: std::ptr::null_mut(),
+            footer: std::ptr::null_mut(),
+            footer_separator: std::ptr::null_mut(),
             entries: Vec::new(),
             shown: Vec::new(),
             remote_keys: Vec::new(),
             load_error: None,
             alive: Arc::clone(&alive),
             font: std::ptr::null_mut(),
+            footer_font: std::ptr::null_mut(),
+            theme,
+            window_brush: CreateSolidBrush(theme.window),
+            control_brush: CreateSolidBrush(theme.control),
         });
         let title = wide("VS Recent");
         let window = CreateWindowExW(
@@ -135,7 +226,9 @@ fn run() -> Result<(), String> {
         UpdateWindow(window);
         SetForegroundWindow(window);
 
-        let demo = std::env::args().any(|argument| argument.eq_ignore_ascii_case("--demo"));
+        let demo = arguments
+            .iter()
+            .any(|argument| argument.eq_ignore_ascii_case("--demo"));
         let window_address = window as usize;
         std::thread::spawn(move || {
             let window = window_address as HWND;
@@ -162,6 +255,43 @@ fn run() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn requested_theme(arguments: &[String]) -> Option<Theme> {
+    if arguments
+        .iter()
+        .any(|argument| argument.eq_ignore_ascii_case("--dark"))
+    {
+        Some(Theme::dark())
+    } else if arguments
+        .iter()
+        .any(|argument| argument.eq_ignore_ascii_case("--light"))
+    {
+        Some(Theme::light())
+    } else {
+        None
+    }
+}
+
+fn system_theme() -> Theme {
+    let mut light_theme = 1u32;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    let result = unsafe {
+        RegGetValueW(
+            0x8000_0001usize as *mut c_void,
+            wide(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize").as_ptr(),
+            wide("AppsUseLightTheme").as_ptr(),
+            RRF_RT_REG_DWORD,
+            std::ptr::null_mut(),
+            (&mut light_theme as *mut u32).cast(),
+            &mut size,
+        )
+    };
+    if result == 0 && light_theme == 0 {
+        Theme::dark()
+    } else {
+        Theme::light()
+    }
 }
 
 unsafe fn handle_picker_key(window: HWND, message: &MSG) -> bool {
@@ -257,7 +387,43 @@ unsafe extern "system" fn window_proc(
         }
         WM_CREATE => {
             unsafe { create_controls(window) };
+            unsafe { apply_theme(window) };
+            unsafe { install_filter_placeholder(window) };
             0
+        }
+        WM_ERASEBKGND => {
+            let pointer = unsafe { state_ptr(window) };
+            if pointer.is_null() {
+                return unsafe { DefWindowProcW(window, message, wparam, lparam) };
+            }
+            let mut bounds = RECT::default();
+            unsafe {
+                GetClientRect(window, &mut bounds);
+                FillRect(wparam as _, &bounds, (*pointer).window_brush);
+            }
+            1
+        }
+        WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
+            let pointer = unsafe { state_ptr(window) };
+            if pointer.is_null() {
+                return unsafe { DefWindowProcW(window, message, wparam, lparam) };
+            }
+            unsafe {
+                SetTextColor(wparam as _, (*pointer).theme.text);
+                SetBkColor(wparam as _, (*pointer).theme.control);
+                (*pointer).control_brush as LRESULT
+            }
+        }
+        WM_CTLCOLORSTATIC => {
+            let pointer = unsafe { state_ptr(window) };
+            if pointer.is_null() {
+                return unsafe { DefWindowProcW(window, message, wparam, lparam) };
+            }
+            unsafe {
+                SetTextColor(wparam as _, (*pointer).theme.muted);
+                SetBkColor(wparam as _, (*pointer).theme.control);
+                (*pointer).control_brush as LRESULT
+            }
         }
         WM_SIZE => {
             let pointer = unsafe { state_ptr(window) };
@@ -355,6 +521,11 @@ unsafe extern "system" fn window_proc(
                     if !(*pointer).font.is_null() {
                         DeleteObject((*pointer).font);
                     }
+                    if !(*pointer).footer_font.is_null() {
+                        DeleteObject((*pointer).footer_font);
+                    }
+                    DeleteObject((*pointer).window_brush);
+                    DeleteObject((*pointer).control_brush);
                     SetWindowLongPtrW(window, GWLP_USERDATA, 0);
                     drop(Box::from_raw(pointer));
                 }
@@ -370,6 +541,7 @@ unsafe fn create_controls(window: HWND) {
     let edit_class = wide("EDIT");
     let list_class = wide("LISTBOX");
     let combo_class = wide("COMBOBOX");
+    let static_class = wide("STATIC");
     let loading = wide("Loading recent folders...");
     let empty = wide("");
 
@@ -428,6 +600,41 @@ unsafe fn create_controls(window: HWND) {
             std::ptr::null(),
         )
     };
+    let footer = unsafe {
+        CreateWindowExW(
+            0,
+            static_class.as_ptr(),
+            wide(
+                "Up/Down Select | Enter Open | Ctrl+Enter New | Shift+Enter Keep | Alt+R Remote | Esc Close",
+            )
+            .as_ptr(),
+            WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_ENDELLIPSIS,
+            10,
+            455,
+            580,
+            25,
+            window,
+            ID_FOOTER as _,
+            instance,
+            std::ptr::null(),
+        )
+    };
+    let footer_separator = unsafe {
+        CreateWindowExW(
+            0,
+            static_class.as_ptr(),
+            empty.as_ptr(),
+            WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+            10,
+            454,
+            580,
+            1,
+            window,
+            ID_FOOTER_SEPARATOR as _,
+            instance,
+            std::ptr::null(),
+        )
+    };
     unsafe {
         SendMessageW(list, LB_ADDSTRING, 0, loading.as_ptr() as LPARAM);
         SendMessageW(
@@ -437,12 +644,6 @@ unsafe fn create_controls(window: HWND) {
             wide("All remotes").as_ptr() as LPARAM,
         );
         SendMessageW(remote_filter, CB_SETCURSEL, 0, 0);
-        SendMessageW(
-            filter,
-            EM_SETCUEBANNER,
-            1,
-            wide("Type to filter").as_ptr() as LPARAM,
-        );
         SetFocus(filter);
     }
     let pointer = unsafe { state_ptr(window) };
@@ -451,11 +652,96 @@ unsafe fn create_controls(window: HWND) {
             (*pointer).filter = filter;
             (*pointer).remote_filter = remote_filter;
             (*pointer).list = list;
+            (*pointer).footer = footer;
+            (*pointer).footer_separator = footer_separator;
             (*pointer).remote_keys = vec![None];
         }
     }
     unsafe { update_row_height(window) };
     unsafe { update_control_font(window) };
+}
+
+unsafe fn install_filter_placeholder(window: HWND) {
+    let pointer = unsafe { state_ptr(window) };
+    if !pointer.is_null() {
+        unsafe { SetWindowSubclass((*pointer).filter, Some(filter_proc), 1, window as usize) };
+    }
+}
+
+unsafe extern "system" fn filter_proc(
+    edit: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    subclass_id: usize,
+    parent_data: usize,
+) -> LRESULT {
+    if message == WM_NCDESTROY {
+        unsafe { RemoveWindowSubclass(edit, Some(filter_proc), subclass_id) };
+    }
+    if message == WM_CHAR && wparam == 1 {
+        unsafe { SendMessageW(edit, EM_SETSEL, 0, -1) };
+        return 0;
+    }
+    let result = unsafe { DefSubclassProc(edit, message, wparam, lparam) };
+    if message == WM_PAINT && unsafe { GetWindowTextLengthW(edit) } == 0 {
+        let pointer = unsafe { state_ptr(parent_data as HWND) };
+        if !pointer.is_null() {
+            let dc = unsafe { GetDC(edit) };
+            if !dc.is_null() {
+                let mut bounds = RECT::default();
+                unsafe { GetClientRect(edit, &mut bounds) };
+                let dpi = unsafe { GetDpiForWindow(edit) } as i32;
+                bounds.left += (4 * dpi / 96).max(3);
+                let old_font = unsafe { SelectObject(dc, (*pointer).font) };
+                unsafe {
+                    SetBkMode(dc, TRANSPARENT as i32);
+                    SetTextColor(dc, (*pointer).theme.muted);
+                    let placeholder = wide("Type to filter");
+                    DrawTextW(
+                        dc,
+                        placeholder.as_ptr(),
+                        placeholder.len().saturating_sub(1) as i32,
+                        &mut bounds,
+                        DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
+                    );
+                    SelectObject(dc, old_font);
+                    ReleaseDC(edit, dc);
+                }
+            }
+        }
+    }
+    result
+}
+
+unsafe fn apply_theme(window: HWND) {
+    let pointer = unsafe { state_ptr(window) };
+    if pointer.is_null() {
+        return;
+    }
+    let dark = unsafe { (*pointer).theme.dark };
+    let dark_value = i32::from(dark);
+    let control_theme = wide(if dark {
+        "DarkMode_Explorer"
+    } else {
+        "Explorer"
+    });
+    unsafe {
+        DwmSetWindowAttribute(
+            window,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            (&dark_value as *const i32).cast(),
+            std::mem::size_of::<i32>() as u32,
+        );
+        SetWindowTheme((*pointer).filter, control_theme.as_ptr(), std::ptr::null());
+        SetWindowTheme(
+            (*pointer).remote_filter,
+            control_theme.as_ptr(),
+            std::ptr::null(),
+        );
+        SetWindowTheme((*pointer).list, control_theme.as_ptr(), std::ptr::null());
+        InvalidateRect(window, std::ptr::null(), 1);
+    }
 }
 
 unsafe fn layout_controls(window: HWND, width: i32, height: i32) {
@@ -469,6 +755,8 @@ unsafe fn layout_controls(window: HWND, width: i32, height: i32) {
     let control_height = (32 * dpi / 96).max(28);
     let remote_width = (170 * dpi / 96).max(140);
     let list_top = margin + control_height + gap;
+    let footer_height = (25 * dpi / 96).max(22);
+    let footer_top = height - margin - footer_height;
     unsafe {
         MoveWindow(
             (*pointer).filter,
@@ -491,7 +779,23 @@ unsafe fn layout_controls(window: HWND, width: i32, height: i32) {
             margin,
             list_top,
             width - margin * 2,
-            height - list_top - margin,
+            footer_top - list_top - gap,
+            1,
+        );
+        MoveWindow(
+            (*pointer).footer_separator,
+            margin,
+            footer_top,
+            width - margin * 2,
+            1,
+            1,
+        );
+        MoveWindow(
+            (*pointer).footer,
+            margin,
+            footer_top + 1,
+            width - margin * 2,
+            footer_height - 1,
             1,
         );
     }
@@ -533,14 +837,41 @@ unsafe fn update_control_font(window: HWND) {
     if font.is_null() {
         return;
     }
+    let footer_font = unsafe {
+        CreateFontW(
+            -(700 * dpi / 7200),
+            0,
+            0,
+            0,
+            FW_NORMAL as i32,
+            0,
+            0,
+            0,
+            DEFAULT_CHARSET as u32,
+            OUT_DEFAULT_PRECIS as u32,
+            CLIP_DEFAULT_PRECIS as u32,
+            DEFAULT_QUALITY as u32,
+            (DEFAULT_PITCH | FF_DONTCARE) as u32,
+            wide("Segoe UI").as_ptr(),
+        )
+    };
+    if footer_font.is_null() {
+        unsafe { DeleteObject(font) };
+        return;
+    }
     unsafe {
         SendMessageW((*pointer).filter, WM_SETFONT, font as WPARAM, 1);
         SendMessageW((*pointer).remote_filter, WM_SETFONT, font as WPARAM, 1);
         SendMessageW((*pointer).list, WM_SETFONT, font as WPARAM, 1);
+        SendMessageW((*pointer).footer, WM_SETFONT, footer_font as WPARAM, 1);
         if !(*pointer).font.is_null() {
             DeleteObject((*pointer).font);
         }
+        if !(*pointer).footer_font.is_null() {
+            DeleteObject((*pointer).footer_font);
+        }
         (*pointer).font = font;
+        (*pointer).footer_font = footer_font;
     }
 }
 
@@ -567,13 +898,14 @@ unsafe fn draw_list_row(window: HWND, lparam: LPARAM) {
             .and_then(|entry_index| state.entries.get(*entry_index))
             .map(|entry| entry.remote.as_str())
     };
-    let (normal, selected) = row_colors(remote.unwrap_or(""));
+    let theme = unsafe { (*pointer).theme };
+    let (normal, selected) = row_colors(remote.unwrap_or(""), theme.dark);
     let is_selected = draw.itemState & ODS_SELECTED != 0;
     let background = if is_selected { selected } else { normal };
     let foreground = if is_selected {
         rgb(255, 255, 255)
     } else {
-        rgb(25, 25, 28)
+        theme.text
     };
     let brush = unsafe { CreateSolidBrush(background) };
     unsafe {
@@ -621,9 +953,32 @@ fn list_item_text(list: HWND, index: usize) -> Vec<u16> {
     }
 }
 
-fn row_colors(remote: &str) -> (COLORREF, COLORREF) {
+fn row_colors(remote: &str, dark: bool) -> (COLORREF, COLORREF) {
     let remote = remote.to_ascii_lowercase();
-    if remote == "local" {
+    if dark && remote == "local" {
+        (rgb(38, 40, 45), rgb(79, 86, 99))
+    } else if dark && remote.starts_with("wsl") {
+        (rgb(57, 37, 31), rgb(194, 70, 25))
+    } else if dark && remote.starts_with("ssh") {
+        (rgb(31, 44, 61), rgb(31, 92, 173))
+    } else if dark && remote.contains("container") {
+        (rgb(29, 48, 56), rgb(25, 119, 177))
+    } else if dark && (remote == "codespace" || remote == "github") {
+        (rgb(45, 36, 61), rgb(103, 63, 168))
+    } else if dark && remote == "tunnel" {
+        (rgb(28, 52, 49), rgb(0, 116, 104))
+    } else if dark {
+        let hash = remote.bytes().fold(2_166_136_261u32, |value, byte| {
+            (value ^ byte as u32).wrapping_mul(16_777_619)
+        });
+        let palette = [
+            (rgb(58, 43, 27), rgb(166, 91, 0)),
+            (rgb(31, 53, 37), rgb(42, 120, 63)),
+            (rgb(55, 34, 42), rgb(153, 60, 91)),
+            (rgb(36, 40, 61), rgb(67, 79, 164)),
+        ];
+        palette[hash as usize % palette.len()]
+    } else if remote == "local" {
         (rgb(239, 241, 245), rgb(79, 86, 99))
     } else if remote.starts_with("wsl") {
         (rgb(255, 238, 229), rgb(194, 70, 25))
@@ -1128,8 +1483,15 @@ mod tests {
 
     #[test]
     fn assigns_distinct_remote_colors() {
-        assert_ne!(row_colors("LOCAL"), row_colors("WSL: Ubuntu"));
-        assert_ne!(row_colors("WSL: Ubuntu"), row_colors("SSH: host"));
-        assert_ne!(row_colors("SSH: host"), row_colors("DEV CONTAINER"));
+        assert_ne!(row_colors("LOCAL", false), row_colors("WSL: Ubuntu", false));
+        assert_ne!(
+            row_colors("WSL: Ubuntu", false),
+            row_colors("SSH: host", false)
+        );
+        assert_ne!(
+            row_colors("SSH: host", false),
+            row_colors("DEV CONTAINER", false)
+        );
+        assert_ne!(row_colors("LOCAL", false), row_colors("LOCAL", true));
     }
 }

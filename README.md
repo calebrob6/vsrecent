@@ -6,12 +6,15 @@ A tiny tool in the spirit of Scott Hanselman's
 [Tiny Tool Town](https://www.tinytooltown.com/) — made for an audience of one,
 shared in case it is useful to anyone else.
 
-![VS Recent demo screenshot](images/screenshot.png)
+| Light | Dark |
+| --- | --- |
+| ![VS Recent light mode](images/screenshot-light.png) | ![VS Recent dark mode](images/screenshot-dark.png) |
 
 ## Features
 
 - Reads `%USERPROFILE%\.vscode-shared\sharedStorage\state.vscdb` through Windows' built-in `winsqlite3.dll`.
 - Preserves local and remote folder URIs for WSL, SSH, Dev Containers, Codespaces, tunnels, and GitHub.
+- Follows the Windows app theme setting for native light or dark mode.
 - Colors each row by its local or remote kind for faster visual scanning.
 - Filters labels, original URIs, and remote names using case-insensitive AND semantics.
 - Uses only Windows system DLLs at runtime; Rust dependencies are statically linked.
@@ -38,6 +41,8 @@ The result is `publish\vsrecent.exe`. For a UI smoke test that does not depend o
 cargo run --release -- --demo
 ```
 
+Use `--demo --light` or `--demo --dark` to force a theme when updating screenshots. Normal launches follow the user's Windows app theme.
+
 CI builds both supported architectures on native GitHub-hosted runners:
 
 | Artifact | Rust target | Runner |
@@ -52,6 +57,7 @@ The matrix runs for every pull request and manual workflow dispatch. Pushing a `
 | Key | Action |
 | --- | --- |
 | Type | Filter recent folders |
+| `Ctrl+A` | Select all filter text |
 | `Up` / `Down` | Move the selection |
 | `PgUp` / `PgDn` | Move by eight rows |
 | `Ctrl+Home` / `Ctrl+End` | Select the first or last result |
