@@ -4,6 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="VS Recent is a fast native Windows picker for folders in VS Code's Open Recent history.">
+  <meta property="og:title" content="VS Recent">
+  <meta property="og:description" content="Open a recent VS Code folder with a few keystrokes.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://calebrob.com/vsrecent/">
+  <meta property="og:image" content="https://calebrob.com/vsrecent/images/screenshot-light.png">
+  <link rel="canonical" href="https://calebrob.com/vsrecent/">
   <title>VS Recent - open a recent VS Code folder fast</title>
   <script>
     (() => {
@@ -12,6 +18,9 @@
         param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
       document.documentElement.setAttribute("data-theme", theme);
     })();
+  </script>
+  <script>
+    document.documentElement.setAttribute("data-theme", "light");
   </script>
   <style>
     :root {
@@ -77,11 +86,11 @@
 
     body {
       margin: 0;
-      background: var(--cp-bg);
-      color: var(--cp-text);
+      background: var(--cp-surface);
+      color: var(--cp-text-muted);
       font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
-      font-size: 17px;
-      line-height: 1.65;
+      font-size: 18px;
+      line-height: 1.5;
     }
 
     a {
@@ -90,7 +99,7 @@
     }
 
     a:hover {
-      color: var(--cp-accent-hover);
+      color: var(--cp-link);
     }
 
     code {
@@ -108,12 +117,15 @@
     }
 
     header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
       border-bottom: 1px solid var(--cp-border);
-      background: var(--cp-bg-elevated);
+      background: var(--cp-surface);
     }
 
     .header-inner {
-      min-height: 56px;
+      min-height: 81px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -135,9 +147,9 @@
       display: grid;
       place-items: center;
       border: 1px solid var(--cp-border-strong);
-      border-radius: 0.5rem;
+      border-radius: 4px;
       background: var(--cp-surface);
-      color: var(--cp-accent);
+      color: var(--cp-link);
       font-family: Consolas, "Courier New", Courier, monospace;
       font-size: 12px;
     }
@@ -155,7 +167,23 @@
     }
 
     .nav a:hover {
-      color: var(--cp-accent);
+      color: var(--cp-link);
+    }
+
+    .github-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .github-icon {
+      width: 16px;
+      height: 16px;
+      fill: var(--cp-text-muted);
+    }
+
+    .github-link:hover .github-icon {
+      fill: var(--cp-link);
     }
 
     main {
@@ -163,7 +191,7 @@
     }
 
     .intro {
-      padding: 64px 0 36px;
+      padding: 48px 0 32px;
     }
 
     .intro-layout {
@@ -179,7 +207,7 @@
 
     .kicker {
       margin: 0 0 10px;
-      color: var(--cp-accent);
+      color: var(--cp-text-muted);
       font-size: 13px;
       font-weight: 700;
       letter-spacing: 0.06em;
@@ -191,17 +219,19 @@
     h3 {
       line-height: 1.2;
       letter-spacing: -0.015em;
+      color: var(--cp-text);
+      font-family: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
     }
 
     h1 {
       max-width: 720px;
       margin: 0 0 18px;
-      font-size: clamp(34px, 5vw, 52px);
+      font-size: clamp(30px, 4vw, 40px);
     }
 
     h2 {
       margin: 0 0 14px;
-      font-size: clamp(25px, 3.5vw, 34px);
+      font-size: clamp(24px, 3vw, 30px);
     }
 
     h3 {
@@ -215,8 +245,8 @@
 
     .summary {
       max-width: 800px;
-      color: var(--cp-text-soft);
-      font-size: 20px;
+      color: var(--cp-text-muted);
+      font-size: 18px;
     }
 
     .actions {
@@ -230,19 +260,19 @@
     .button {
       display: inline-block;
       padding: 10px 14px;
-      border: 1px solid var(--cp-accent);
-      border-radius: 0.625rem;
-      background: var(--cp-accent);
-      color: var(--cp-accent-fg);
+      border: 1px solid var(--cp-text-muted);
+      border-radius: 4px;
+      background: var(--cp-text-muted);
+      color: var(--cp-surface);
       font-size: 15px;
       font-weight: 700;
       text-decoration: none;
     }
 
     .button:hover {
-      border-color: var(--cp-accent-hover);
-      background: var(--cp-accent-hover);
-      color: var(--cp-accent-fg);
+      border-color: var(--cp-text);
+      background: var(--cp-text);
+      color: var(--cp-surface);
     }
 
     .button.secondary {
@@ -252,8 +282,8 @@
     }
 
     .button.secondary:hover {
-      border-color: var(--cp-accent);
-      color: var(--cp-accent);
+      border-color: var(--cp-text);
+      color: var(--cp-text);
     }
 
     .download-note {
@@ -270,21 +300,8 @@
       width: 100%;
       height: auto;
       border: 1px solid var(--cp-border);
-      border-radius: 0.625rem;
+      border-radius: 4px;
       background: var(--cp-surface);
-      box-shadow: 0 1px 2px var(--cp-border);
-    }
-
-    .demo img.demo-dark {
-      display: none;
-    }
-
-    html[data-theme="dark"] .demo img.demo-light {
-      display: none;
-    }
-
-    html[data-theme="dark"] .demo img.demo-dark {
-      display: block;
     }
 
     figcaption {
@@ -304,9 +321,8 @@
       margin: 28px 0 16px;
       padding: 24px;
       border: 1px solid var(--cp-border);
-      border-radius: 16px;
+      border-radius: 4px;
       background: var(--cp-surface);
-      box-shadow: 0 1px 2px var(--cp-border);
     }
 
     .plot {
@@ -372,7 +388,7 @@
     }
 
     .range.new {
-      background: var(--cp-accent);
+      background: var(--cp-link);
     }
 
     .bar-value {
@@ -454,49 +470,6 @@
 
     .sequence span {
       color: var(--cp-text-soft);
-    }
-
-    .table-wrap {
-      margin-top: 20px;
-      overflow-x: auto;
-      border: 1px solid var(--cp-border);
-      border-radius: 0.625rem;
-    }
-
-    table {
-      width: 100%;
-      min-width: 720px;
-      border-collapse: collapse;
-      background: var(--cp-surface);
-    }
-
-    th,
-    td {
-      padding: 13px 14px;
-      border-bottom: 1px solid var(--cp-border);
-      text-align: left;
-      vertical-align: top;
-    }
-
-    th {
-      background: var(--cp-surface-soft);
-      color: var(--cp-text-muted);
-      font-size: 12px;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
-
-    tr:last-child td {
-      border-bottom: 0;
-    }
-
-    td:first-child {
-      font-weight: 700;
-    }
-
-    .small {
-      color: var(--cp-text-muted);
-      font-size: 14px;
     }
 
     footer {
@@ -585,19 +558,24 @@
       <nav class="nav" aria-label="Main navigation">
         <a href="#download">Download</a>
         <a href="#startup">Startup</a>
-        <a href="https://github.com/calebrob6/vsrecent">GitHub</a>
+        <a class="github-link" href="https://github.com/calebrob6/vsrecent">
+          <svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 6.64 5.47 7.71.4.08.55-.18.55-.39 0-.19-.01-.84-.01-1.52-2.01.38-2.53-.5-2.69-.96-.09-.23-.48-.96-.82-1.15-.28-.15-.68-.53-.01-.54.63-.01 1.08.59 1.23.83.72 1.23 1.87.88 2.33.67.07-.53.28-.88.51-1.08-1.78-.21-3.64-.91-3.64-4.02 0-.89.31-1.62.82-2.19-.08-.2-.36-1.04.08-2.16 0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.94c.68 0 1.36.09 2 .27 1.53-1.06 2.2-.84 2.2-.84.44 1.12.16 1.96.08 2.16.51.57.82 1.3.82 2.19 0 3.12-1.87 3.81-3.65 4.02.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.47.55.39A8.14 8.14 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z"></path>
+          </svg>
+          <span>GitHub</span>
+        </a>
       </nav>
     </div>
   </header>
 
   <main class="page">
     <div class="intro">
-      <p class="kicker">Instant recent-folder picker for Windows</p>
+      <p class="kicker">Free and open source under the MIT License</p>
       <h1>Open a recent VS Code folder, fast</h1>
       <div class="intro-layout">
         <div class="intro-copy">
-          <p class="summary">VS Recent reads VS Code's Open Recent history and gives you a small, searchable picker. Type part of a folder name, choose a result, and press Enter.</p>
-          <p class="summary">Pin it to the Windows taskbar and use <code>Win+1</code> through <code>Win+9</code> to open it. The native Rust executable is available for Windows on ARM and x64.</p>
+          <p class="summary">I built VS Recent around one shortcut: press <code>Win+1</code>, type part of a folder name, and press Enter. It reads VS Code's Open Recent history and gets out of the way.</p>
+          <p class="summary">The app is a small native Rust executable for Windows on ARM and x64. It also understands WSL, SSH, Dev Containers, Codespaces, tunnels, and GitHub repositories.</p>
           <div class="actions" id="download">
             <a class="button" href="https://github.com/calebrob6/vsrecent/releases/latest/download/vsrecent-win-arm64.exe">Download ARM64</a>
             <a class="button secondary" href="https://github.com/calebrob6/vsrecent/releases/latest/download/vsrecent-win-x64.exe">Download x64</a>
@@ -606,33 +584,31 @@
         </div>
         <figure class="demo">
           <img class="demo-light" src="images/screenshot-light.png" width="602" height="491" alt="VS Recent running in the Windows light theme">
-          <img class="demo-dark" src="images/screenshot-dark.png" width="602" height="491" alt="VS Recent running in the Windows dark theme">
           <figcaption><q>I want this to display <em>immediately</em> when I hit a hotkey, so that I can open a vscode folder.</q></figcaption>
         </figure>
       </div>
     </div>
 
     <section aria-labelledby="features-heading">
-      <h2 id="features-heading">A small launcher for one job</h2>
+      <h2 id="features-heading">Install it and pin it</h2>
+      <p>Put VS Recent in the first taskbar slot and <code>Win+1</code> becomes a shortcut to your recent folders. The filter stays focused, so most launches are a few keystrokes followed by Enter.</p>
       <ul>
-        <li>Search folder names, full URIs, and remote types with case-insensitive AND matching.</li>
-        <li>Open local folders, WSL, SSH, Dev Containers, Codespaces, tunnels, and GitHub repositories.</li>
-        <li>Use the keyboard for filtering, selection, and opening a new VS Code window.</li>
-        <li>Follow the Windows light or dark app theme.</li>
-        <li>Run as one small executable with no separate runtime installation.</li>
+        <li>Type several words to narrow the list. Every word must match.</li>
+        <li>Press <code>Ctrl+Enter</code> to open a new VS Code window or <code>Shift+Enter</code> to keep the picker open.</li>
+        <li>Use the remote menu when you only want local, WSL, SSH, or container folders.</li>
       </ul>
-      <p>VS Recent is also available through WinGet:</p>
+      <p>You can also install it with WinGet:</p>
       <p><code>winget install --id calebrob6.VSRecent --exact</code></p>
     </section>
 
     <section id="startup" aria-labelledby="startup-heading">
-      <p class="kicker">How we made startup fast</p>
-      <h2 id="startup-heading">Show the window first</h2>
-      <p>The first implementation used C# and WinForms. Version 0.5.0 replaced it with Rust and direct Win32 calls. The old program also loaded the VS Code database before creating its form. The new program paints the picker first and loads history on a worker thread.</p>
-      <p>The C# version usually took 359-390 ms to show its first window. The Rust version took 63-85 ms on the same machine. The new window appears about five times sooner and stays below the commonly used 100 ms limit for an interaction to feel immediate.</p>
+      <p class="kicker">Startup</p>
+      <h2 id="startup-heading">Why I rewrote it in Rust</h2>
+      <p>The first version used C# and WinForms. It worked. Its window took 359-390 ms to appear, which was slow enough to feel out of step with a keyboard shortcut.</p>
+      <p>The Rust version took 63-85 ms on the same machine. It starts less software and paints the picker before reading VS Code history.</p>
 
       <h3 id="timing-heading">Measured startup time</h3>
-      <p>The chart uses a 0-400 ms scale. The dashed line marks 100 ms. Jakob Nielsen describes 100 ms as roughly the limit at which a system still feels like it reacts instantly.</p>
+      <p>The dashed line marks 100 ms, the point where a response starts to lose its feeling of immediacy.</p>
 
       <div class="chart" role="img" aria-label="Rust startup measured 63 to 85 milliseconds, below the 100 millisecond perception line. C# startup measured 359 to 390 milliseconds.">
         <div class="plot">
@@ -669,144 +645,59 @@
         </div>
       </div>
 
-      <p class="caption">Source for the 100 ms guideline: Jakob Nielsen, <a href="https://www.nngroup.com/articles/response-times-3-important-limits/">Response Times: The 3 Important Limits</a>. The VS Recent ranges came from warm startup tests during the Rust migration.</p>
-    </section>
-
-    <section aria-labelledby="short-heading">
-      <h2 id="short-heading">Short answer</h2>
-      <p>The old executable included the .NET runtime and WinForms. Windows first started the .NET host, which then started CoreCLR and prepared managed code. The program read SQLite, parsed JSON, and built every recent-folder entry before it created the form.</p>
-      <p>The Rust executable is a small native Windows program. It creates the window and its controls directly with Win32, calls <code>ShowWindow</code> and <code>UpdateWindow</code>, and then starts history loading on another thread. The user sees the picker while the database work finishes.</p>
-      <p>The improvement comes from both changes. Native code removes the managed runtime startup cost. Moving history loading after first paint removes unrelated work from the path that the user waits on.</p>
+      <p class="caption">Jakob Nielsen uses 100 ms as the limit for a response to feel instantaneous in <a href="https://www.nngroup.com/articles/response-times-3-important-limits/">Response Times: The 3 Important Limits</a>. The VS Recent ranges came from warm startup tests during the Rust rewrite.</p>
     </section>
 
     <section aria-labelledby="old-heading">
-      <h2 id="old-heading">What the C# version did before showing a window</h2>
+      <h2 id="old-heading">The C# version waited for everything</h2>
+      <p>The old startup path did all of its work in order on the main thread:</p>
       <ol class="sequence">
-        <li><strong>Start the .NET application host.</strong><span>The self-contained executable locates its embedded runtime and prepares CoreCLR.</span></li>
-        <li><strong>Start managed execution.</strong><span>The runtime sets up managed code support, metadata, garbage collection, assembly loading, and any required JIT compilation.</span></li>
-        <li><strong>Initialize WinForms.</strong><span>The program enables visual styles, sets DPI behavior, and loads the WinForms application layer.</span></li>
-        <li><strong>Read VS Code history.</strong><span><code>LoadEntries()</code> opens SQLite and reads the recent-folder JSON on the main thread.</span></li>
-        <li><strong>Parse and prepare every entry.</strong><span>The program parses JSON, classifies remote URIs, creates labels, and builds lowercase search text.</span></li>
-        <li><strong>Build the form.</strong><span>The constructor creates managed controls, panels, fonts, layout rules, event handlers, accessibility properties, and drawing state.</span></li>
-        <li><strong>Start the message loop and paint.</strong><span><code>Application.Run(form)</code> finally allows the form to create its native handles and appear.</span></li>
+        <li><strong>Start .NET and WinForms.</strong><span>The self-contained executable loads CoreCLR, managed code support, garbage collection, and the WinForms framework.</span></li>
+        <li><strong>Read the VS Code database.</strong><span><code>LoadEntries()</code> opens SQLite before a form exists.</span></li>
+        <li><strong>Prepare every row.</strong><span>The app parses JSON, classifies remote URIs, creates labels, and builds the text used for searching.</span></li>
+        <li><strong>Build the form.</strong><span>WinForms creates its controls, fonts, layout rules, event handlers, and drawing state.</span></li>
+        <li><strong>Paint.</strong><span><code>Application.Run(form)</code> finally lets the window appear.</span></li>
       </ol>
     </section>
 
     <section aria-labelledby="new-heading">
-      <h2 id="new-heading">What the Rust version does before showing a window</h2>
+      <h2 id="new-heading">The Rust version paints first</h2>
+      <p>The current startup path only does what is needed to put a window on screen:</p>
       <ol class="sequence">
-        <li><strong>Map a native executable.</strong><span>Windows loads a roughly 250 KB PE file. There is no managed runtime or garbage collector to start.</span></li>
-        <li><strong>Set basic process options.</strong><span>The app sets DPI awareness, initializes common controls, reads the theme, and creates a named mutex for single-instance behavior.</span></li>
-        <li><strong>Create the window and controls.</strong><span>The app calls Win32 directly for the edit box, remote dropdown, list, separator, and footer.</span></li>
-        <li><strong>Paint the picker.</strong><span><code>ShowWindow</code> and <code>UpdateWindow</code> display a usable shell with a loading row.</span></li>
-        <li><strong>Load history in the background.</strong><span>A worker opens SQLite, parses JSON, prepares entries, and posts the completed list back to the window.</span></li>
+        <li><strong>Load the native executable.</strong><span>Windows maps a roughly 250 KB program. There is no managed runtime to start.</span></li>
+        <li><strong>Create five Win32 controls.</strong><span>The filter, remote menu, list, separator, and footer are native Windows controls.</span></li>
+        <li><strong>Paint.</strong><span><code>ShowWindow</code> and <code>UpdateWindow</code> display the picker with a loading row.</span></li>
+        <li><strong>Read history on another thread.</strong><span>The worker opens SQLite, parses JSON, and sends the finished rows back to the window.</span></li>
       </ol>
     </section>
 
-    <section aria-labelledby="cost-heading">
-      <h2 id="cost-heading">Where the time changed</h2>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Part</th>
-              <th>C# version</th>
-              <th>Rust version</th>
-              <th>Effect</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Runtime</td>
-              <td>Starts CoreCLR and managed execution support.</td>
-              <td>Runs native machine code directly.</td>
-              <td>Rust has less process setup before application code runs.</td>
-            </tr>
-            <tr>
-              <td>UI layer</td>
-              <td>Creates a WinForms object tree, then creates native handles and performs layout.</td>
-              <td>Creates the required Win32 controls directly.</td>
-              <td>Rust skips most of the framework object and layout work.</td>
-            </tr>
-            <tr>
-              <td>History loading</td>
-              <td>Runs on the UI thread before the form exists.</td>
-              <td>Runs on a worker after the first paint.</td>
-              <td>Database speed no longer controls when the window appears.</td>
-            </tr>
-            <tr>
-              <td>JSON</td>
-              <td>Uses <code>System.Text.Json</code> before form creation.</td>
-              <td>Uses <code>serde_json</code> after first paint.</td>
-              <td>The timing of the work matters more here than the parser choice.</td>
-            </tr>
-            <tr>
-              <td>Release size</td>
-              <td>50.4 MB for x64 and 49.6 MB for ARM64.</td>
-              <td>250 KB for x64 and 236 KB for ARM64.</td>
-              <td>The loader, filesystem cache, and antivirus scanner see a much smaller image.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
     <section aria-labelledby="size-heading">
-      <h2 id="size-heading">Why the old executable was much larger</h2>
-      <p>The C# build used <code>--self-contained=true</code>. It included the .NET runtime so users did not need to install .NET. It also enabled single-file compression and included native libraries for extraction. This made installation easy. The process still had to find and start the embedded runtime. A first launch could also include extraction and antivirus work.</p>
-      <p>The Rust build links the Rust code and JSON parser into a small native executable. It uses Windows system DLLs for windows, drawing, SQLite, and launching VS Code. Its release settings enable link-time optimization, remove symbols, optimize for size, and abort on panic.</p>
-      <p>Windows does not read every byte of an executable at startup, so file size is not a direct timer. The roughly 200x size difference still shows how much runtime and framework material the old package carried.</p>
+      <h2 id="size-heading">Fifty megabytes became 250 kilobytes</h2>
+      <p>The old x64 release was 50.4 MB because it carried the .NET runtime and WinForms inside one self-contained file. That saved users from installing .NET, but the program still had to find and start the embedded runtime.</p>
+      <p>The Rust x64 release is about 250 KB. It contains the app and JSON parser, then uses Windows for controls, drawing, SQLite, and process launching. A smaller file gives the loader, filesystem cache, and antivirus scanner less to inspect.</p>
+      <p>File size is only part of the result. Windows does not read every byte at startup. Showing the window before opening SQLite makes the larger difference to how the app feels.</p>
     </section>
 
     <section aria-labelledby="same-heading">
-      <h2 id="same-heading">What stayed the same</h2>
-      <ul>
-        <li>Both versions use Windows <code>winsqlite3.dll</code> and open the database read-only.</li>
-        <li>Both copy the database, WAL, and SHM files to a temporary directory if the live database cannot be read safely.</li>
-        <li>Both parse the same recent-folder JSON and preserve local and remote folder URIs.</li>
-        <li>Both classify remotes and build lowercase text used by the filter.</li>
-        <li>Both launch VS Code with <code>--folder-uri</code>.</li>
-      </ul>
-      <p>SQLite and entry preparation did not disappear. The Rust app moved them until after the first frame.</p>
+      <h2 id="same-heading">SQLite stayed the same</h2>
+      <p>Both versions call Windows' <code>winsqlite3.dll</code>, open the database read-only, parse the same JSON, preserve the same folder URIs, and launch VS Code with <code>--folder-uri</code>. The Rust rewrite did not make that work vanish. It moved the work until after the first frame.</p>
     </section>
 
     <section aria-labelledby="measurement-heading">
-      <h2 id="measurement-heading">How to read the numbers</h2>
-      <h3>Warm startup</h3>
-      <p>The 359-390 ms and 63-85 ms ranges came from repeated warm launches. Warm tests match the normal taskbar workflow: open the picker, use it, close it, and open it again later. They also reduce noise from disk caches and first-time extraction.</p>
-
-      <h3>Cold startup</h3>
-      <p>A launch after reboot can include disk reads, Defender scanning, and first-time extraction. Those costs vary between machines. The old 50 MB bundle gives those systems more work than the small native executable, so cold starts may show a wider gap.</p>
-
-      <h3>First window versus loaded entries</h3>
-      <p>The benchmark stops when the window appears. The Rust list may still say "Loading recent folders..." for a short time. A separate entries-ready measurement would be needed to compare full data-loading time. This page focuses on the delay the user feels after pressing the launch shortcut.</p>
-
-      <h3>Current startup check</h3>
-      <p>The branch that adds single-instance activation and UI fixes was compared with <code>main</code> using 50 interleaved ARM64 runs after five warmups. <code>main</code> measured 66.18 ms median and 73.35 ms p95. The branch measured 66.99 ms median and 74.84 ms p95. The median difference was 0.81 ms.</p>
+      <h2 id="measurement-heading">About the timing</h2>
+      <p>These are warm launches on one Windows machine. That matches how I use the app during the day and avoids much of the noise from disk caches, first-time extraction, and Defender scans.</p>
+      <p>The clock stops when the window appears. The list may show "Loading recent folders..." for a moment while the worker finishes. This measures the pause after the hotkey, not the time until every row is ready.</p>
+      <p>Every code change now gets the same check. A 50-run ARM64 test after adding single-instance activation moved the median from 66.18 ms to 66.99 ms.</p>
     </section>
 
     <section aria-labelledby="tradeoff-heading">
-      <h2 id="tradeoff-heading">The tradeoff</h2>
-      <p>WinForms handled layout, events, control lifetime, accessibility, DPI scaling, and much of the drawing work. The Rust version handles native window messages, GDI objects, raw handles, DPI changes, theming, and cleanup itself. That code is harder to write and review.</p>
-      <p>A C# version could also improve its first paint by showing an empty form before loading history. The Rust version would still avoid CoreCLR and WinForms startup, but the order of work explains a large part of the difference users see.</p>
-    </section>
-
-    <section aria-labelledby="sources-heading">
-      <h2 id="sources-heading">Sources</h2>
-      <ul>
-        <li><a href="https://github.com/calebrob6/vsrecent/blob/82287a1/VsRecent.cs">C# startup and WinForms code at commit 82287a1</a></li>
-        <li><a href="https://github.com/calebrob6/vsrecent/blob/82287a1/vsrecent.csproj">C# publish settings</a></li>
-        <li><a href="https://github.com/calebrob6/vsrecent/blob/main/src/main.rs">Current Rust startup and background loader</a></li>
-        <li><a href="https://github.com/calebrob6/vsrecent/blob/main/Cargo.toml">Rust dependencies and release settings</a></li>
-        <li><a href="https://github.com/calebrob6/vsrecent/releases/tag/v0.4.0">v0.4.0 release sizes</a> and <a href="https://github.com/calebrob6/vsrecent/releases/tag/v0.5.0">v0.5.0 release sizes</a></li>
-        <li><a href="https://www.nngroup.com/articles/response-times-3-important-limits/">Nielsen Norman Group response-time limits</a></li>
-      </ul>
-      <p class="small">The migration benchmark measured total startup-to-first-window time. It did not trace each phase separately, so this page does not assign a millisecond value to individual runtime, UI, database, or parsing steps.</p>
+      <h2 id="tradeoff-heading">Cost of the Win32 approach</h2>
+      <p>WinForms used to handle layout, events, control lifetime, accessibility, DPI scaling, and much of the drawing. The Rust version owns native window messages, raw handles, GDI objects, theming, DPI changes, and cleanup. The picker starts much faster, and the code needs more care.</p>
     </section>
   </main>
 
   <footer>
-    <div class="page">VS Recent is open source under the MIT License. <a href="https://github.com/calebrob6/vsrecent">View the source on GitHub</a>.</div>
+    <div class="page">&copy; 2026 Caleb Robinson.</div>
   </footer>
 </body>
 </html>

@@ -2,7 +2,7 @@
 
 VS Recent is an instant native Windows picker for folders in VS Code's **Open Recent** history. Pin it to the taskbar and press the matching `Win+1` through `Win+9` shortcut, type a few characters, and press Enter.
 
-[Download VS Recent and read how it starts so quickly](https://calebrob6.github.io/vsrecent/).
+[Download VS Recent and read how it starts so quickly](https://calebrob.com/vsrecent/).
 
 A tiny tool in the spirit of Scott Hanselman's
 [Tiny Tool Town](https://www.tinytooltown.com/) — made for an audience of one,
@@ -88,7 +88,7 @@ The included `install.ps1` installs release artifacts and creates a Start Menu s
 
 Startup deliberately performs only native window-class registration and control creation on the UI thread. Once the first paint is requested, a worker thread opens the VS Code database read-only, parses its recent-folder JSON, builds the search index, and posts the completed list to the UI thread. If the live WAL database cannot be read, it snapshots the database and its `-wal` and `-shm` files into a process-specific temporary directory and retries.
 
-See [How VS Recent starts quickly](https://calebrob6.github.io/vsrecent/#startup) for a detailed comparison with the former C# WinForms implementation.
+See [How VS Recent starts quickly](https://calebrob.com/vsrecent/#startup) for a detailed comparison with the former C# WinForms implementation.
 
 ## License
 
