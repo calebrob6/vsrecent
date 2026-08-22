@@ -121,9 +121,25 @@
     }
 
     .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       color: var(--cp-text);
       font-weight: 700;
       text-decoration: none;
+    }
+
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--cp-border-strong);
+      border-radius: 0.5rem;
+      background: var(--cp-surface);
+      color: var(--cp-accent);
+      font-family: Consolas, "Courier New", Courier, monospace;
+      font-size: 12px;
     }
 
     .header-note {
@@ -461,7 +477,10 @@
 <body>
   <header>
     <div class="page header-inner">
-      <a class="brand" href="https://github.com/calebrob6/vsrecent">VS Recent</a>
+      <a class="brand" href="https://github.com/calebrob6/vsrecent">
+        <span class="brand-mark" aria-hidden="true">&gt;_</span>
+        <span>VS Recent</span>
+      </a>
       <span class="header-note">Startup comparison</span>
     </div>
   </header>
@@ -470,6 +489,8 @@
     <div class="intro">
       <p class="kicker">C# WinForms and Rust Win32</p>
       <h1>Why the Rust version starts faster</h1>
+      <p class="summary">VS Recent is a small Windows picker for folders in VS Code's Open Recent history. It is designed to appear as soon as the user presses a taskbar shortcut, accept a few filter characters, and open the selected folder.</p>
+      <p class="summary">The first implementation used C# and WinForms. Version 0.5.0 replaced it with Rust and direct Win32 calls to reduce the delay between starting the process and seeing the picker.</p>
       <p class="summary">The C# version usually took 359-390 ms to show its first window. The Rust version took 63-85 ms on the same machine. Rust starts less software, and the app now paints its window before reading VS Code history.</p>
       <p class="plain-note">The new window appears about five times sooner and stays below the commonly used 100 ms limit for an interaction to feel immediate.</p>
     </div>
