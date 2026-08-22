@@ -103,7 +103,7 @@
     }
 
     .page {
-      width: min(920px, calc(100% - 32px));
+      width: min(1180px, calc(100% - 32px));
       margin: 0 auto;
     }
 
@@ -155,6 +155,17 @@
       padding: 64px 0 36px;
     }
 
+    .intro-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+      align-items: start;
+      gap: 40px;
+    }
+
+    .intro-copy {
+      max-width: 760px;
+    }
+
     .kicker {
       margin: 0 0 10px;
       color: var(--cp-accent);
@@ -204,7 +215,41 @@
       background: var(--cp-accent-soft);
     }
 
+    .demo {
+      margin: 8px 0 0;
+    }
+
+    .demo img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--cp-border);
+      border-radius: 0.625rem;
+      background: var(--cp-surface);
+      box-shadow: 0 1px 2px var(--cp-border);
+    }
+
+    .demo img.demo-dark {
+      display: none;
+    }
+
+    html[data-theme="dark"] .demo img.demo-light {
+      display: none;
+    }
+
+    html[data-theme="dark"] .demo img.demo-dark {
+      display: block;
+    }
+
+    figcaption {
+      margin-top: 10px;
+      color: var(--cp-text-muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
     section {
+      max-width: 820px;
       padding: 34px 0;
       border-top: 1px solid var(--cp-border);
     }
@@ -428,6 +473,16 @@
         padding-top: 44px;
       }
 
+      .intro-layout {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+
+      .demo {
+        max-width: 520px;
+        margin-top: 8px;
+      }
+
       .header-note {
         display: none;
       }
@@ -489,10 +544,19 @@
     <div class="intro">
       <p class="kicker">C# WinForms and Rust Win32</p>
       <h1>Why the Rust version starts faster</h1>
-      <p class="summary">VS Recent is a small Windows picker for folders in VS Code's Open Recent history. It is designed to appear as soon as the user presses a taskbar shortcut, accept a few filter characters, and open the selected folder.</p>
-      <p class="summary">The first implementation used C# and WinForms. Version 0.5.0 replaced it with Rust and direct Win32 calls to reduce the delay between starting the process and seeing the picker.</p>
-      <p class="summary">The C# version usually took 359-390 ms to show its first window. The Rust version took 63-85 ms on the same machine. Rust starts less software, and the app now paints its window before reading VS Code history.</p>
-      <p class="plain-note">The new window appears about five times sooner and stays below the commonly used 100 ms limit for an interaction to feel immediate.</p>
+      <div class="intro-layout">
+        <div class="intro-copy">
+          <p class="summary">VS Recent is a small Windows picker for folders in VS Code's Open Recent history. It is designed to appear as soon as the user presses a taskbar shortcut, accept a few filter characters, and open the selected folder.</p>
+          <p class="summary">The first implementation used C# and WinForms. Version 0.5.0 replaced it with Rust and direct Win32 calls to reduce the delay between starting the process and seeing the picker.</p>
+          <p class="summary">The C# version usually took 359-390 ms to show its first window. The Rust version took 63-85 ms on the same machine. Rust starts less software, and the app now paints its window before reading VS Code history.</p>
+          <p class="plain-note">The new window appears about five times sooner and stays below the commonly used 100 ms limit for an interaction to feel immediate.</p>
+        </div>
+        <figure class="demo">
+          <img class="demo-light" src="../images/screenshot-light.png" width="602" height="491" alt="VS Recent running in the Windows light theme">
+          <img class="demo-dark" src="../images/screenshot-dark.png" width="602" height="491" alt="VS Recent running in the Windows dark theme">
+          <figcaption><q>I want this to display <em>immediately</em> when I hit a hotkey, so that I can open a vscode folder.</q></figcaption>
+        </figure>
+      </div>
     </div>
 
     <section aria-labelledby="timing-heading">
