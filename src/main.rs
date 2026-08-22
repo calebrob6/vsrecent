@@ -11,11 +11,15 @@ use windows_sys::Win32::Foundation::{COLORREF, GetLastError, HWND, LPARAM, LRESU
 use windows_sys::Win32::Graphics::Gdi::{
     CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH,
     DEFAULT_QUALITY, DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteObject,
-    DrawTextW, FF_DONTCARE, FW_NORMAL, FillRect, HBRUSH, HFONT, InvalidateRect, OUT_DEFAULT_PRECIS,
-    SelectObject, SetBkColor, SetBkMode, SetTextColor, TRANSPARENT, UpdateWindow,
+    DrawTextW, FF_DONTCARE, FW_NORMAL, FillRect, GetDC, HBRUSH, HFONT, InvalidateRect,
+    OUT_DEFAULT_PRECIS, ReleaseDC, SelectObject, SetBkColor, SetBkMode, SetTextColor, TRANSPARENT,
+    UpdateWindow,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::UI::Controls::{DRAWITEMSTRUCT, EM_SETCUEBANNER, ODS_SELECTED};
+use windows_sys::Win32::UI::Controls::{
+    DRAWITEMSTRUCT, EM_SETSEL, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx,
+    ODS_SELECTED,
+};
 use windows_sys::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow, SetProcessDpiAwarenessContext,
 };
@@ -23,14 +27,21 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, SetFocus, VK_CONTROL, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME, VK_NEXT, VK_PRIOR,
     VK_R, VK_RETURN, VK_SHIFT, VK_UP,
 };
-use windows_sys::Win32::UI::Shell::ShellExecuteW;
+use windows_sys::Win32::UI::Shell::{
+    DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass, ShellExecuteW,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 const ID_FILTER: usize = 100;
 const ID_LIST: usize = 101;
 const ID_REMOTE: usize = 102;
+const ID_FOOTER: usize = 103;
+const ID_FOOTER_SEPARATOR: usize = 104;
 const WM_ENTRIES_LOADED: u32 = WM_APP + 1;
 const WM_LAUNCH_SELECTED: u32 = WM_APP + 2;
+const SS_CENTERIMAGE: u32 = 0x0000_0200;
+const SS_ENDELLIPSIS: u32 = 0x0000_4000;
+const SS_ETCHEDHORZ: u32 = 0x0000_0010;
 const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
 const RRF_RT_REG_DWORD: u32 = 0x0000_0018;
 
@@ -75,12 +86,15 @@ struct AppState {
     filter: HWND,
     remote_filter: HWND,
     list: HWND,
+    footer: HWND,
+    footer_separator: HWND,
     entries: Vec<Entry>,
     shown: Vec<usize>,
     remote_keys: Vec<Option<String>>,
     load_error: Option<String>,
     alive: Arc<AtomicBool>,
     font: HFONT,
+    footer_font: HFONT,
     theme: Theme,
     window_brush: HBRUSH,
     control_brush: HBRUSH,
@@ -92,6 +106,7 @@ struct Theme {
     window: COLORREF,
     control: COLORREF,
     text: COLORREF,
+    muted: COLORREF,
 }
 
 impl Theme {
@@ -101,6 +116,7 @@ impl Theme {
             window: rgb(245, 245, 245),
             control: rgb(255, 255, 255),
             text: rgb(25, 25, 28),
+            muted: rgb(96, 96, 96),
         }
     }
 
@@ -110,6 +126,7 @@ impl Theme {
             window: rgb(30, 30, 30),
             control: rgb(37, 37, 38),
             text: rgb(232, 232, 232),
+            muted: rgb(165, 165, 165),
         }
     }
 }
@@ -145,6 +162,10 @@ fn main() {
 fn run() -> Result<(), String> {
     unsafe {
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        InitCommonControlsEx(&INITCOMMONCONTROLSEX {
+            dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
+            dwICC: ICC_STANDARD_CLASSES,
+        });
         let arguments: Vec<String> = std::env::args().collect();
         let theme = requested_theme(&arguments).unwrap_or_else(system_theme);
         let instance = GetModuleHandleW(std::ptr::null());
@@ -169,12 +190,15 @@ fn run() -> Result<(), String> {
             filter: std::ptr::null_mut(),
             remote_filter: std::ptr::null_mut(),
             list: std::ptr::null_mut(),
+            footer: std::ptr::null_mut(),
+            footer_separator: std::ptr::null_mut(),
             entries: Vec::new(),
             shown: Vec::new(),
             remote_keys: Vec::new(),
             load_error: None,
             alive: Arc::clone(&alive),
             font: std::ptr::null_mut(),
+            footer_font: std::ptr::null_mut(),
             theme,
             window_brush: CreateSolidBrush(theme.window),
             control_brush: CreateSolidBrush(theme.control),
@@ -364,6 +388,7 @@ unsafe extern "system" fn window_proc(
         WM_CREATE => {
             unsafe { create_controls(window) };
             unsafe { apply_theme(window) };
+            unsafe { install_filter_placeholder(window) };
             0
         }
         WM_ERASEBKGND => {
@@ -378,13 +403,24 @@ unsafe extern "system" fn window_proc(
             }
             1
         }
-        WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORSTATIC => {
+        WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
             let pointer = unsafe { state_ptr(window) };
             if pointer.is_null() {
                 return unsafe { DefWindowProcW(window, message, wparam, lparam) };
             }
             unsafe {
                 SetTextColor(wparam as _, (*pointer).theme.text);
+                SetBkColor(wparam as _, (*pointer).theme.control);
+                (*pointer).control_brush as LRESULT
+            }
+        }
+        WM_CTLCOLORSTATIC => {
+            let pointer = unsafe { state_ptr(window) };
+            if pointer.is_null() {
+                return unsafe { DefWindowProcW(window, message, wparam, lparam) };
+            }
+            unsafe {
+                SetTextColor(wparam as _, (*pointer).theme.muted);
                 SetBkColor(wparam as _, (*pointer).theme.control);
                 (*pointer).control_brush as LRESULT
             }
@@ -485,6 +521,9 @@ unsafe extern "system" fn window_proc(
                     if !(*pointer).font.is_null() {
                         DeleteObject((*pointer).font);
                     }
+                    if !(*pointer).footer_font.is_null() {
+                        DeleteObject((*pointer).footer_font);
+                    }
                     DeleteObject((*pointer).window_brush);
                     DeleteObject((*pointer).control_brush);
                     SetWindowLongPtrW(window, GWLP_USERDATA, 0);
@@ -502,6 +541,7 @@ unsafe fn create_controls(window: HWND) {
     let edit_class = wide("EDIT");
     let list_class = wide("LISTBOX");
     let combo_class = wide("COMBOBOX");
+    let static_class = wide("STATIC");
     let loading = wide("Loading recent folders...");
     let empty = wide("");
 
@@ -560,6 +600,41 @@ unsafe fn create_controls(window: HWND) {
             std::ptr::null(),
         )
     };
+    let footer = unsafe {
+        CreateWindowExW(
+            0,
+            static_class.as_ptr(),
+            wide(
+                "Up/Down Select | Enter Open | Ctrl+Enter New | Shift+Enter Keep | Alt+R Remote | Esc Close",
+            )
+            .as_ptr(),
+            WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_ENDELLIPSIS,
+            10,
+            455,
+            580,
+            25,
+            window,
+            ID_FOOTER as _,
+            instance,
+            std::ptr::null(),
+        )
+    };
+    let footer_separator = unsafe {
+        CreateWindowExW(
+            0,
+            static_class.as_ptr(),
+            empty.as_ptr(),
+            WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+            10,
+            454,
+            580,
+            1,
+            window,
+            ID_FOOTER_SEPARATOR as _,
+            instance,
+            std::ptr::null(),
+        )
+    };
     unsafe {
         SendMessageW(list, LB_ADDSTRING, 0, loading.as_ptr() as LPARAM);
         SendMessageW(
@@ -569,12 +644,6 @@ unsafe fn create_controls(window: HWND) {
             wide("All remotes").as_ptr() as LPARAM,
         );
         SendMessageW(remote_filter, CB_SETCURSEL, 0, 0);
-        SendMessageW(
-            filter,
-            EM_SETCUEBANNER,
-            1,
-            wide("Type to filter").as_ptr() as LPARAM,
-        );
         SetFocus(filter);
     }
     let pointer = unsafe { state_ptr(window) };
@@ -583,11 +652,66 @@ unsafe fn create_controls(window: HWND) {
             (*pointer).filter = filter;
             (*pointer).remote_filter = remote_filter;
             (*pointer).list = list;
+            (*pointer).footer = footer;
+            (*pointer).footer_separator = footer_separator;
             (*pointer).remote_keys = vec![None];
         }
     }
     unsafe { update_row_height(window) };
     unsafe { update_control_font(window) };
+}
+
+unsafe fn install_filter_placeholder(window: HWND) {
+    let pointer = unsafe { state_ptr(window) };
+    if !pointer.is_null() {
+        unsafe { SetWindowSubclass((*pointer).filter, Some(filter_proc), 1, window as usize) };
+    }
+}
+
+unsafe extern "system" fn filter_proc(
+    edit: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    subclass_id: usize,
+    parent_data: usize,
+) -> LRESULT {
+    if message == WM_NCDESTROY {
+        unsafe { RemoveWindowSubclass(edit, Some(filter_proc), subclass_id) };
+    }
+    if message == WM_CHAR && wparam == 1 {
+        unsafe { SendMessageW(edit, EM_SETSEL, 0, -1) };
+        return 0;
+    }
+    let result = unsafe { DefSubclassProc(edit, message, wparam, lparam) };
+    if message == WM_PAINT && unsafe { GetWindowTextLengthW(edit) } == 0 {
+        let pointer = unsafe { state_ptr(parent_data as HWND) };
+        if !pointer.is_null() {
+            let dc = unsafe { GetDC(edit) };
+            if !dc.is_null() {
+                let mut bounds = RECT::default();
+                unsafe { GetClientRect(edit, &mut bounds) };
+                let dpi = unsafe { GetDpiForWindow(edit) } as i32;
+                bounds.left += (4 * dpi / 96).max(3);
+                let old_font = unsafe { SelectObject(dc, (*pointer).font) };
+                unsafe {
+                    SetBkMode(dc, TRANSPARENT as i32);
+                    SetTextColor(dc, (*pointer).theme.muted);
+                    let placeholder = wide("Type to filter");
+                    DrawTextW(
+                        dc,
+                        placeholder.as_ptr(),
+                        placeholder.len().saturating_sub(1) as i32,
+                        &mut bounds,
+                        DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
+                    );
+                    SelectObject(dc, old_font);
+                    ReleaseDC(edit, dc);
+                }
+            }
+        }
+    }
+    result
 }
 
 unsafe fn apply_theme(window: HWND) {
@@ -631,6 +755,8 @@ unsafe fn layout_controls(window: HWND, width: i32, height: i32) {
     let control_height = (32 * dpi / 96).max(28);
     let remote_width = (170 * dpi / 96).max(140);
     let list_top = margin + control_height + gap;
+    let footer_height = (25 * dpi / 96).max(22);
+    let footer_top = height - margin - footer_height;
     unsafe {
         MoveWindow(
             (*pointer).filter,
@@ -653,7 +779,23 @@ unsafe fn layout_controls(window: HWND, width: i32, height: i32) {
             margin,
             list_top,
             width - margin * 2,
-            height - list_top - margin,
+            footer_top - list_top - gap,
+            1,
+        );
+        MoveWindow(
+            (*pointer).footer_separator,
+            margin,
+            footer_top,
+            width - margin * 2,
+            1,
+            1,
+        );
+        MoveWindow(
+            (*pointer).footer,
+            margin,
+            footer_top + 1,
+            width - margin * 2,
+            footer_height - 1,
             1,
         );
     }
@@ -695,14 +837,41 @@ unsafe fn update_control_font(window: HWND) {
     if font.is_null() {
         return;
     }
+    let footer_font = unsafe {
+        CreateFontW(
+            -(825 * dpi / 7200),
+            0,
+            0,
+            0,
+            FW_NORMAL as i32,
+            0,
+            0,
+            0,
+            DEFAULT_CHARSET as u32,
+            OUT_DEFAULT_PRECIS as u32,
+            CLIP_DEFAULT_PRECIS as u32,
+            DEFAULT_QUALITY as u32,
+            (DEFAULT_PITCH | FF_DONTCARE) as u32,
+            wide("Segoe UI").as_ptr(),
+        )
+    };
+    if footer_font.is_null() {
+        unsafe { DeleteObject(font) };
+        return;
+    }
     unsafe {
         SendMessageW((*pointer).filter, WM_SETFONT, font as WPARAM, 1);
         SendMessageW((*pointer).remote_filter, WM_SETFONT, font as WPARAM, 1);
         SendMessageW((*pointer).list, WM_SETFONT, font as WPARAM, 1);
+        SendMessageW((*pointer).footer, WM_SETFONT, footer_font as WPARAM, 1);
         if !(*pointer).font.is_null() {
             DeleteObject((*pointer).font);
         }
+        if !(*pointer).footer_font.is_null() {
+            DeleteObject((*pointer).footer_font);
+        }
         (*pointer).font = font;
+        (*pointer).footer_font = footer_font;
     }
 }
 

@@ -52,6 +52,7 @@ The matrix runs for every pull request and manual workflow dispatch. Pushing a `
 | Key | Action |
 | --- | --- |
 | Type | Filter recent folders |
+| `Ctrl+A` | Select all filter text |
 | `Up` / `Down` | Move the selection |
 | `PgUp` / `PgDn` | Move by eight rows |
 | `Ctrl+Home` / `Ctrl+End` | Select the first or last result |
