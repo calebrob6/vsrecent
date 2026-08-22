@@ -2,7 +2,11 @@
 
 VS Recent is an instant native Windows picker for folders in VS Code's **Open Recent** history. Pin it to the taskbar and press the matching `Win+1` through `Win+9` shortcut, type a few characters, and press Enter.
 
-The Rust version uses raw Win32 controls and has no terminal window or GUI runtime. It creates and paints the picker before loading the VS Code history on a worker thread, so database or filesystem latency does not block the first visible window.
+A tiny tool in the spirit of Scott Hanselman's
+[Tiny Tool Town](https://www.tinytooltown.com/) — made for an audience of one,
+shared in case it is useful to anyone else.
+
+![VS Recent demo screenshot](images/screenshot.png)
 
 ## Features
 
