@@ -1,0 +1,947 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A technical comparison of VS Recent startup in the former C# WinForms build and the current Rust Win32 build.">
+  <title>Why VS Recent starts faster in Rust</title>
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--cp-bg);
+      color: var(--cp-text);
+      font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 16px;
+      line-height: 1.62;
+    }
+
+    a {
+      color: var(--cp-link);
+      text-underline-offset: 3px;
+    }
+
+    a:hover {
+      color: var(--cp-accent-hover);
+    }
+
+    code,
+    pre {
+      font-family: Consolas, "Courier New", Courier, monospace;
+    }
+
+    code {
+      padding: 2px 5px;
+      border: 1px solid var(--cp-border);
+      border-radius: 0.375rem;
+      background: var(--cp-surface-soft);
+      font-size: 0.9em;
+    }
+
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      border-bottom: 1px solid var(--cp-border);
+      background: var(--cp-bg-elevated);
+    }
+
+    .topbar-inner {
+      min-height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--cp-text);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--cp-border-strong);
+      border-radius: 0.5rem;
+      background: var(--cp-surface);
+      color: var(--cp-accent);
+      font-family: Consolas, "Courier New", Courier, monospace;
+      font-size: 12px;
+    }
+
+    .topbar-note {
+      color: var(--cp-text-muted);
+      font-size: 13px;
+    }
+
+    .hero {
+      padding: 72px 0 44px;
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      color: var(--cp-accent);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin-top: 0;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+    }
+
+    h1 {
+      max-width: 880px;
+      margin-bottom: 20px;
+      font-size: clamp(40px, 7vw, 76px);
+      font-weight: 720;
+    }
+
+    h2 {
+      margin-bottom: 12px;
+      font-size: clamp(28px, 4vw, 42px);
+    }
+
+    h3 {
+      margin-bottom: 8px;
+      font-size: 19px;
+    }
+
+    .lede {
+      max-width: 820px;
+      margin: 0;
+      color: var(--cp-text-soft);
+      font-size: clamp(18px, 2.5vw, 23px);
+      line-height: 1.5;
+    }
+
+    .hero-summary {
+      display: inline-block;
+      margin-top: 24px;
+      padding: 10px 14px;
+      border-left: 4px solid var(--cp-accent);
+      background: var(--cp-accent-soft);
+      font-weight: 600;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 0 0 64px;
+    }
+
+    .metric,
+    .card,
+    .timeline,
+    .note,
+    .table-wrap,
+    .code-card {
+      border: 1px solid var(--cp-border);
+      background: var(--cp-surface);
+      box-shadow: 0 1px 2px var(--cp-border);
+    }
+
+    .metric {
+      min-height: 152px;
+      padding: 20px;
+      border-radius: 16px;
+    }
+
+    .metric-value {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--cp-accent);
+      font-size: 32px;
+      font-weight: 750;
+      line-height: 1.1;
+    }
+
+    .metric-label {
+      display: block;
+      font-weight: 650;
+    }
+
+    .metric-detail {
+      display: block;
+      margin-top: 6px;
+      color: var(--cp-text-muted);
+      font-size: 13px;
+    }
+
+    section {
+      padding: 34px 0 48px;
+    }
+
+    .section-intro {
+      max-width: 780px;
+      margin: 0 0 24px;
+      color: var(--cp-text-soft);
+      font-size: 18px;
+    }
+
+    .chart {
+      padding: 24px;
+      border: 1px solid var(--cp-border);
+      border-radius: 16px;
+      background: var(--cp-surface);
+      box-shadow: 0 1px 2px var(--cp-border);
+    }
+
+    .chart-row {
+      display: grid;
+      grid-template-columns: 160px 1fr 112px;
+      align-items: center;
+      gap: 16px;
+      margin: 20px 0;
+    }
+
+    .chart-label {
+      font-weight: 700;
+    }
+
+    .chart-track {
+      position: relative;
+      height: 28px;
+      overflow: hidden;
+      border: 1px solid var(--cp-border);
+      border-radius: 0.625rem;
+      background: var(--cp-surface-soft);
+    }
+
+    .chart-range {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      min-width: 8px;
+      border-radius: 0.5rem;
+    }
+
+    .chart-range.old {
+      background: var(--cp-text-muted);
+    }
+
+    .chart-range.new {
+      background: var(--cp-accent);
+    }
+
+    .chart-value {
+      color: var(--cp-text-soft);
+      font-family: Consolas, "Courier New", Courier, monospace;
+      font-size: 13px;
+      text-align: right;
+    }
+
+    .axis {
+      display: grid;
+      grid-template-columns: 160px 1fr 112px;
+      gap: 16px;
+    }
+
+    .axis-labels {
+      display: flex;
+      justify-content: space-between;
+      color: var(--cp-text-muted);
+      font-family: Consolas, "Courier New", Courier, monospace;
+      font-size: 11px;
+    }
+
+    .note {
+      margin-top: 16px;
+      padding: 16px 18px;
+      border-radius: 0.625rem;
+      color: var(--cp-text-soft);
+    }
+
+    .note strong {
+      color: var(--cp-text);
+    }
+
+    .timeline-grid,
+    .two-column,
+    .reason-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .timeline-grid,
+    .two-column {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .reason-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .timeline {
+      padding: 24px;
+      border-radius: 16px;
+    }
+
+    .timeline-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--cp-border);
+    }
+
+    .timeline-header h3 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    .timeline-time {
+      color: var(--cp-accent);
+      font-family: Consolas, "Courier New", Courier, monospace;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .steps {
+      margin: 20px 0 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: step;
+    }
+
+    .steps li {
+      position: relative;
+      min-height: 46px;
+      margin-left: 14px;
+      padding: 0 0 20px 36px;
+      border-left: 2px solid var(--cp-border);
+      counter-increment: step;
+    }
+
+    .steps li:last-child {
+      padding-bottom: 0;
+      border-left-color: var(--cp-surface);
+    }
+
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      top: -2px;
+      left: -15px;
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 2px solid var(--cp-border);
+      border-radius: 50%;
+      background: var(--cp-surface);
+      color: var(--cp-text-muted);
+      font-family: Consolas, "Courier New", Courier, monospace;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .steps li.paint {
+      font-weight: 700;
+    }
+
+    .steps li.paint::before {
+      border-color: var(--cp-accent);
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+    }
+
+    .step-detail {
+      display: block;
+      margin-top: 3px;
+      color: var(--cp-text-muted);
+      font-size: 13px;
+      font-weight: 400;
+    }
+
+    .card {
+      padding: 22px;
+      border-radius: 16px;
+    }
+
+    .card-number {
+      display: inline-grid;
+      width: 30px;
+      height: 30px;
+      margin-bottom: 14px;
+      place-items: center;
+      border: 1px solid var(--cp-border-strong);
+      border-radius: 0.5rem;
+      color: var(--cp-accent);
+      font-family: Consolas, "Courier New", Courier, monospace;
+      font-weight: 700;
+    }
+
+    .card p {
+      margin-bottom: 0;
+      color: var(--cp-text-soft);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border-radius: 16px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+    }
+
+    th,
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--cp-border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--cp-surface-soft);
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td:first-child {
+      font-weight: 700;
+    }
+
+    .code-card {
+      overflow: hidden;
+      border-radius: 16px;
+    }
+
+    .code-title {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--cp-border);
+      background: var(--cp-surface-soft);
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    pre {
+      min-height: 236px;
+      margin: 0;
+      padding: 18px;
+      overflow-x: auto;
+      background: var(--cp-surface);
+      color: var(--cp-text);
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .accent-line {
+      color: var(--cp-accent);
+      font-weight: 700;
+    }
+
+    .muted-line {
+      color: var(--cp-text-muted);
+    }
+
+    .callout {
+      padding: 28px;
+      border: 1px solid var(--cp-accent);
+      border-radius: 16px;
+      background: var(--cp-accent-soft);
+    }
+
+    .callout h3 {
+      font-size: 24px;
+    }
+
+    .callout p:last-child {
+      margin-bottom: 0;
+    }
+
+    .source-list {
+      margin: 0;
+      padding-left: 20px;
+      color: var(--cp-text-soft);
+    }
+
+    .source-list li {
+      margin: 8px 0;
+    }
+
+    footer {
+      margin-top: 28px;
+      padding: 28px 0 44px;
+      border-top: 1px solid var(--cp-border);
+      color: var(--cp-text-muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 900px) {
+      .metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .timeline-grid,
+      .two-column,
+      .reason-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .chart-row,
+      .axis {
+        grid-template-columns: 120px 1fr;
+      }
+
+      .chart-value {
+        grid-column: 2;
+        text-align: left;
+      }
+
+      .axis-spacer-end {
+        display: none;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .shell {
+        width: min(100% - 20px, 1180px);
+      }
+
+      .topbar-note {
+        display: none;
+      }
+
+      .hero {
+        padding-top: 48px;
+      }
+
+      .metrics {
+        grid-template-columns: 1fr;
+      }
+
+      .chart-row,
+      .axis {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+
+      .chart-value {
+        grid-column: 1;
+      }
+
+      .axis-spacer-start {
+        display: none;
+      }
+    }
+
+    @media print {
+      .topbar {
+        position: static;
+      }
+
+      .metric,
+      .card,
+      .timeline,
+      .chart,
+      .table-wrap,
+      .code-card {
+        box-shadow: none;
+        break-inside: avoid;
+      }
+
+      a {
+        text-decoration: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="https://github.com/calebrob6/vsrecent">
+        <span class="brand-mark" aria-hidden="true">&gt;_</span>
+        <span>VS Recent</span>
+      </a>
+      <span class="topbar-note">Startup architecture note</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero shell">
+      <p class="eyebrow">C# WinForms compared with Rust and raw Win32</p>
+      <h1>Why the Rust build opens in about 70 milliseconds</h1>
+      <p class="lede">The former self-contained .NET 9 application reached its first window in 359-390 ms during migration testing. The native Rust build reached it in 63-85 ms on the same machine. Two changes account for most of the gap: the process no longer boots a managed UI runtime, and history loading no longer blocks the first paint.</p>
+      <p class="hero-summary">The rewrite reduced observed warm startup by roughly 4-6x and release size by about 200x.</p>
+    </section>
+
+    <div class="shell metrics" aria-label="Headline comparison">
+      <article class="metric">
+        <span class="metric-value">359-390 ms</span>
+        <span class="metric-label">C# first window</span>
+        <span class="metric-detail">Self-contained .NET 9 and WinForms</span>
+      </article>
+      <article class="metric">
+        <span class="metric-value">63-85 ms</span>
+        <span class="metric-label">Rust first window</span>
+        <span class="metric-detail">Native PE and raw Win32 controls</span>
+      </article>
+      <article class="metric">
+        <span class="metric-value">50.4 MB</span>
+        <span class="metric-label">Old x64 release</span>
+        <span class="metric-detail">v0.4.0 self-contained executable</span>
+      </article>
+      <article class="metric">
+        <span class="metric-value">250 KB</span>
+        <span class="metric-label">New x64 release</span>
+        <span class="metric-detail">v0.5.0 optimized executable</span>
+      </article>
+    </div>
+
+    <section class="shell" aria-labelledby="measured-heading">
+      <p class="eyebrow">Observed result</p>
+      <h2 id="measured-heading">Startup-to-first-window range</h2>
+      <p class="section-intro">Each horizontal marker shows the observed range on a 0-400 ms scale. The metric stops when the picker window becomes available; database completion is intentionally outside that boundary in the Rust build.</p>
+      <div class="chart" role="img" aria-label="C# startup took 359 to 390 milliseconds. Rust startup took 63 to 85 milliseconds.">
+        <div class="chart-row">
+          <div class="chart-label">C# / WinForms</div>
+          <div class="chart-track">
+            <div class="chart-range old" style="left: 89.75%; width: 7.75%;"></div>
+          </div>
+          <div class="chart-value">359-390 ms</div>
+        </div>
+        <div class="chart-row">
+          <div class="chart-label">Rust / Win32</div>
+          <div class="chart-track">
+            <div class="chart-range new" style="left: 15.75%; width: 5.5%;"></div>
+          </div>
+          <div class="chart-value">63-85 ms</div>
+        </div>
+        <div class="axis" aria-hidden="true">
+          <span class="axis-spacer-start"></span>
+          <div class="axis-labels">
+            <span>0</span>
+            <span>100</span>
+            <span>200</span>
+            <span>300</span>
+            <span>400 ms</span>
+          </div>
+          <span class="axis-spacer-end"></span>
+        </div>
+      </div>
+      <div class="note"><strong>Scope of the claim:</strong> these are migration measurements from one Windows machine, not universal constants. CPU, storage, Defender state, OS cache state, and VS Code history size all affect absolute time. The code paths explain why the gap persists even when the exact numbers move.</div>
+    </section>
+
+    <section class="shell" aria-labelledby="path-heading">
+      <p class="eyebrow">Critical path</p>
+      <h2 id="path-heading">What must finish before pixels appear</h2>
+      <p class="section-intro">The old implementation performs data access and model construction before a form exists. The current implementation creates and paints the picker first, then starts the same data work on a worker thread.</p>
+      <div class="timeline-grid">
+        <article class="timeline">
+          <div class="timeline-header">
+            <h3>C# / .NET 9 / WinForms</h3>
+            <span class="timeline-time">359-390 ms</span>
+          </div>
+          <ol class="steps">
+            <li>Windows maps the native .NET app host.<span class="step-detail">The host locates the embedded single-file bundle and prepares the runtime.</span></li>
+            <li>CoreCLR starts.<span class="step-detail">Runtime libraries, metadata, the GC, and managed execution support become available before <code>Main</code>.</span></li>
+            <li>WinForms initializes.<span class="step-detail">High-DPI mode, visual styles, application services, and framework types are activated.</span></li>
+            <li>VS Code history loads synchronously.<span class="step-detail">The UI thread opens SQLite, reads JSON, parses entries, classifies remotes, and creates search keys.</span></li>
+            <li><code>MainForm</code> constructs its managed control tree.<span class="step-detail">Fonts, panels, controls, docking rules, event handlers, accessibility properties, and drawing state are allocated.</span></li>
+            <li class="paint"><code>Application.Run(form)</code> creates handles and permits first paint.<span class="step-detail">The user waits for every earlier step even though the history is not required to draw the shell.</span></li>
+          </ol>
+        </article>
+
+        <article class="timeline">
+          <div class="timeline-header">
+            <h3>Rust / native Win32</h3>
+            <span class="timeline-time">63-85 ms</span>
+          </div>
+          <ol class="steps">
+            <li>Windows maps a small native PE.<span class="step-detail">There is no managed runtime, assembly graph, or GC to initialize.</span></li>
+            <li>Minimal process setup runs.<span class="step-detail">The app sets DPI awareness, initializes common controls, reads the theme, and claims a named mutex.</span></li>
+            <li>The window class and state are created.<span class="step-detail">A compact Rust state structure replaces the managed form object graph.</span></li>
+            <li>Five native child controls are created.<span class="step-detail">The edit, combo box, list box, footer, and separator are direct USER32/common-control windows.</span></li>
+            <li class="paint"><code>ShowWindow</code> and <code>UpdateWindow</code> force first paint.<span class="step-detail">The picker is visible with a loading row before any database call begins.</span></li>
+            <li>History loads on a worker thread.<span class="step-detail">SQLite, JSON parsing, classification, and search indexing run after first paint, then post results to the UI thread.</span></li>
+          </ol>
+        </article>
+      </div>
+    </section>
+
+    <section class="shell" aria-labelledby="causes-heading">
+      <p class="eyebrow">Where the time went</p>
+      <h2 id="causes-heading">Four concrete differences</h2>
+      <div class="reason-grid">
+        <article class="card">
+          <span class="card-number">01</span>
+          <h3>Managed runtime startup is gone</h3>
+          <p>The C# executable is an app host plus a bundled .NET runtime and framework. CoreCLR must establish managed execution, load metadata, initialize the garbage collector, resolve assemblies, and prepare methods for execution. Framework libraries may contain precompiled code, but the application still crosses the host-to-runtime boundary and JIT-compiles application methods as needed. Rust produces native machine code ahead of time, so execution enters the program without CoreCLR.</p>
+        </article>
+        <article class="card">
+          <span class="card-number">02</span>
+          <h3>The deployment image is about 200x smaller</h3>
+          <p>The v0.4.0 self-contained executables were 50.4 MB for x64 and 49.6 MB for ARM64. The v0.5.0 Rust executables are 250 KB and 236 KB. Windows demand-pages executables, so startup does not read every byte. The smaller native image still gives the loader, filesystem cache, antivirus scanner, and bundle machinery far less material to inspect. The old compressed single-file configuration can also incur native extraction work, especially on a first launch.</p>
+        </article>
+        <article class="card">
+          <span class="card-number">03</span>
+          <h3>WinForms builds a larger abstraction layer</h3>
+          <p>The old constructor creates managed objects for the form, text box, combo box, custom list box, labels, panels, fonts, docking layout, event delegates, accessibility data, and owner drawing. WinForms later realizes native handles and runs layout before painting. The Rust program asks Win32 for the exact controls it needs and handles messages directly. It avoids much of the managed object and layout infrastructure.</p>
+        </article>
+        <article class="card">
+          <span class="card-number">04</span>
+          <h3>Database work left the first-paint path</h3>
+          <p>This scheduling change has the largest effect on perceived startup. C# calls <code>LoadEntries()</code> before constructing <code>MainForm</code>. Rust calls <code>ShowWindow</code> and <code>UpdateWindow</code> before spawning the loader thread. SQLite and JSON still take time, but the user sees and can orient to the picker while that work finishes. Time-to-content may depend on history size; time-to-window no longer does.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="shell" aria-labelledby="code-heading">
+      <p class="eyebrow">The key source-level change</p>
+      <h2 id="code-heading">The order of operations</h2>
+      <div class="two-column">
+        <article class="code-card">
+          <div class="code-title">Former C# startup, simplified</div>
+          <pre><span class="muted-line">// Managed runtime is already running here.</span>
+Application.SetHighDpiMode(...);
+Application.EnableVisualStyles();
+
+<span class="accent-line">entries = LoadEntries();</span>
+<span class="muted-line">// SQLite read</span>
+<span class="muted-line">// JSON parse</span>
+<span class="muted-line">// remote classification</span>
+<span class="muted-line">// search-key construction</span>
+
+using var form = new MainForm(entries);
+<span class="accent-line">Application.Run(form); // first paint comes later</span></pre>
+        </article>
+        <article class="code-card">
+          <div class="code-title">Current Rust startup, simplified</div>
+          <pre>SetProcessDpiAwarenessContext(...);
+InitCommonControlsEx(...);
+
+let window = CreateWindowExW(...);
+create_controls(window);
+
+<span class="accent-line">ShowWindow(window, SW_SHOW);</span>
+<span class="accent-line">UpdateWindow(window); // first paint now</span>
+
+std::thread::spawn(move || {
+    let entries = load_entries();
+    PostMessageW(window, WM_ENTRIES_LOADED, ...);
+});</pre>
+        </article>
+      </div>
+    </section>
+
+    <section class="shell" aria-labelledby="same-heading">
+      <p class="eyebrow">Controlled comparison</p>
+      <h2 id="same-heading">What stayed the same</h2>
+      <p class="section-intro">The rewrite preserved the product behavior and much of the data pipeline. Those common pieces help isolate the startup explanation.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Work</th>
+              <th>Former C# build</th>
+              <th>Current Rust build</th>
+              <th>Startup consequence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>SQLite engine</td>
+              <td>P/Invoke to Windows <code>winsqlite3.dll</code></td>
+              <td>Direct FFI to Windows <code>winsqlite3.dll</code></td>
+              <td>The database engine is effectively the same.</td>
+            </tr>
+            <tr>
+              <td>Database mode</td>
+              <td>Read-only with WAL snapshot fallback</td>
+              <td>Read-only with WAL snapshot fallback</td>
+              <td>I/O behavior remains comparable, but Rust runs it after paint.</td>
+            </tr>
+            <tr>
+              <td>History parsing</td>
+              <td><code>System.Text.Json</code></td>
+              <td><code>serde_json</code></td>
+              <td>Both parse the same JSON. Parser speed is secondary to scheduling here.</td>
+            </tr>
+            <tr>
+              <td>Search preparation</td>
+              <td>Lowercase label, URI, and remote kind</td>
+              <td>Lowercase label, URI, and remote kind</td>
+              <td>The same per-entry preparation remains.</td>
+            </tr>
+            <tr>
+              <td>Visible controls</td>
+              <td>WinForms wrappers around Windows controls</td>
+              <td>Windows controls created directly</td>
+              <td>The native version skips the managed wrapper and layout layers.</td>
+            </tr>
+            <tr>
+              <td>VS Code launch</td>
+              <td>Detached <code>Code.exe --folder-uri</code></td>
+              <td>Detached <code>Code.exe --folder-uri</code></td>
+              <td>No meaningful effect on picker startup because it runs after selection.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="shell" aria-labelledby="packaging-heading">
+      <p class="eyebrow">Packaging and loading</p>
+      <h2 id="packaging-heading">How file size affects startup</h2>
+      <div class="two-column">
+        <article class="card">
+          <h3>The self-contained .NET executable</h3>
+          <p><code>PublishSingleFile</code>, <code>EnableCompressionInSingleFile</code>, <code>IncludeNativeLibrariesForSelfExtract</code>, and <code>--self-contained=true</code> package the application, CoreCLR, native runtime components, WinForms, System.Drawing, JSON support, and supporting framework assemblies into one distributable file. The target machine needs no preinstalled .NET runtime, but each process must still bootstrap the embedded runtime. A first launch can also pay extraction and antivirus costs that warm measurements may hide.</p>
+        </article>
+        <article class="card">
+          <h3>The optimized Rust executable</h3>
+          <p>The release profile uses LTO, one code-generation unit, size optimization, symbol stripping, and abort-on-panic. Rust and <code>serde_json</code> code are compiled into the PE, while UI, graphics, SQLite, shell, and windowing services come from Windows system DLLs. The operating system usually has many of those DLL pages cached already. The resulting release contains little unrelated startup code.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="shell" aria-labelledby="interpret-heading">
+      <p class="eyebrow">Reading the measurements</p>
+      <h2 id="interpret-heading">Warm startup favors repeatability</h2>
+      <div class="reason-grid">
+        <article class="card">
+          <h3>Warm runs answer the interaction question</h3>
+          <p>The taskbar-launch workflow happens repeatedly during a workday. Warm measurements reduce disk and one-time extraction variance, making them useful for the question, "How quickly does the picker appear when I press Win+1 again?" The 359-390 ms and 63-85 ms ranges represent that workflow.</p>
+        </article>
+        <article class="card">
+          <h3>Cold runs can widen the difference</h3>
+          <p>A cold reboot, empty filesystem cache, first single-file extraction, or fresh Defender scan adds machine-specific noise. The 50 MB .NET bundle exposes more bytes and components to those systems than the 250 KB native image. Cold-start tests are still valuable, but they need controlled reboot or cache procedures to be comparable.</p>
+        </article>
+        <article class="card">
+          <h3>First window and complete data are different metrics</h3>
+          <p>The Rust design optimizes first paint. Its list can still show "Loading recent folders..." while the worker reads SQLite. A complete performance study would record both first-window time and entries-ready time. The UI feels immediate because only the first metric blocks visual feedback.</p>
+        </article>
+        <article class="card">
+          <h3>The current regression budget is measured</h3>
+          <p>The release-polish branch adds single-instance activation and UI corrections. On native ARM64, 50 interleaved warm runs measured <code>main</code> at 66.18 ms median / 73.35 ms p95 and the branch at 66.99 ms / 74.84 ms. The 0.81 ms median increase is small enough to keep the interaction effectively unchanged.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="shell" aria-labelledby="tradeoff-heading">
+      <p class="eyebrow">Engineering tradeoff</p>
+      <h2 id="tradeoff-heading">The speed came with more manual UI code</h2>
+      <p class="section-intro">WinForms supplied layout, events, control lifetime, accessibility integration, DPI behavior, and drawing abstractions. The Rust version owns those details through HWNDs, message dispatch, GDI resources, FFI boundaries, and explicit cleanup.</p>
+      <div class="callout">
+        <h3>Language choice and architecture both matter</h3>
+        <p>A Rust port that opened SQLite before creating its window would still feel slower than this implementation. A C# version could improve perceived speed by displaying an empty form first and loading history asynchronously. The native build also avoids CoreCLR and WinForms startup. The critical-path redesign is responsible for a large share of the user-visible improvement.</p>
+      </div>
+    </section>
+
+    <section class="shell" aria-labelledby="sources-heading">
+      <p class="eyebrow">Repository evidence</p>
+      <h2 id="sources-heading">Sources used for this comparison</h2>
+      <ul class="source-list">
+        <li><a href="https://github.com/calebrob6/vsrecent/blob/82287a1/VsRecent.cs">C# startup and WinForms implementation at commit 82287a1</a></li>
+        <li><a href="https://github.com/calebrob6/vsrecent/blob/82287a1/vsrecent.csproj">Former .NET 9 single-file publish configuration</a></li>
+        <li><a href="https://github.com/calebrob6/vsrecent/blob/main/src/main.rs">Current Rust startup, worker loading, and raw Win32 UI</a></li>
+        <li><a href="https://github.com/calebrob6/vsrecent/blob/main/Cargo.toml">Current dependencies and optimized release profile</a></li>
+        <li><a href="https://github.com/calebrob6/vsrecent/releases/tag/v0.4.0">v0.4.0 .NET release assets</a> and <a href="https://github.com/calebrob6/vsrecent/releases/tag/v0.5.0">v0.5.0 Rust release assets</a></li>
+      </ul>
+      <div class="note"><strong>Attribution limit:</strong> the migration benchmark measured total startup-to-first-window time rather than tracing every phase separately. The phase analysis follows the source order, published packaging settings, executable sizes, and documented behavior of the two runtime models. It does not assign an unsupported millisecond value to each individual phase.</div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell">VS Recent startup architecture comparison. Measurements and source references reflect the repository's C# v0.4.0 and Rust v0.5.0-era implementations.</div>
+  </footer>
+</body>
+</html>
