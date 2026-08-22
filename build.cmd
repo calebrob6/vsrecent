@@ -2,18 +2,15 @@
 setlocal
 cd /d "%~dp0"
 
-REM Detect host architecture so a double-click "just works" on both x64 and ARM64.
-set "RID=win-x64"
-if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "RID=win-arm64"
-if /i "%PROCESSOR_ARCHITEW6432%"=="ARM64" set "RID=win-arm64"
-
-echo Publishing %RID% self-contained single-file build...
-dotnet publish vsrecent.csproj -c Release -r %RID% --self-contained=true -o "publish\%RID%"
+where cargo >nul 2>nul
 if errorlevel 1 (
-    echo Build FAILED.
+    echo Rust is required. Install it with: winget install Rustlang.Rustup
     exit /b 1
 )
 
-echo.
-echo Build OK: %CD%\publish\%RID%\vsrecent.exe
-endlocal
+cargo build --release --locked
+if errorlevel 1 exit /b %errorlevel%
+
+if not exist publish mkdir publish
+copy /y target\release\vsrecent.exe publish\vsrecent.exe >nul
+echo Built publish\vsrecent.exe

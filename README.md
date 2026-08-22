@@ -1,173 +1,70 @@
 # VS Recent
 
-VS Recent is a Windows launcher for folders in VS Code's **Open Recent**
-history. Type to filter, then press Enter or double-click an entry to open it.
+VS Recent is an instant native Windows picker for folders in VS Code's **Open Recent** history. Pin it to the taskbar and press the matching `Win+1` through `Win+9` shortcut, type a few characters, and press Enter.
 
-![VS Recent demo screenshot](images/screenshot.png)
+The Rust version uses raw Win32 controls and has no terminal window or GUI runtime. It creates and paints the picker before loading the VS Code history on a worker thread, so database or filesystem latency does not block the first visible window.
 
-- Self-contained .NET 9 WinForms executable for **x64** and **ARM64** Windows.
-  The target machine does not need a .NET runtime.
-- Reads VS Code's recent-folder list from
-  `%USERPROFILE%\.vscode-shared\sharedStorage\state.vscdb` via
-  Windows' `winsqlite3.dll`.
-- Shows local and remote entries from *File > Open Recent > More...*, including
-  WSL, SSH, Dev Containers, Codespaces, and GitHub. Each row has a
-  pill showing the remote kind (`LOCAL`, `WSL: Ubuntu`, `SSH: hostname`,
-  `DEV CONTAINER`, `CODESPACE`, or `GITHUB`).
-- Starts `Code.exe --folder-uri "<uri>"`, restores an existing matching window
-  if it was hidden, and exits without terminating VS Code.
+## Features
 
-## Download
+- Reads `%USERPROFILE%\.vscode-shared\sharedStorage\state.vscdb` through Windows' built-in `winsqlite3.dll`.
+- Preserves local and remote folder URIs for WSL, SSH, Dev Containers, Codespaces, tunnels, and GitHub.
+- Colors each row by its local or remote kind for faster visual scanning.
+- Filters labels, original URIs, and remote names using case-insensitive AND semantics.
+- Uses only Windows system DLLs at runtime; Rust dependencies are statically linked.
+- Produces a small, self-contained `vsrecent.exe` for x64 and ARM64.
 
-Download the executable for your architecture from the
-[Releases page](../../releases):
+## Build
 
-- `vsrecent-win-x64.exe`: Intel/AMD 64-bit Windows
-- `vsrecent-win-arm64.exe`: Windows on ARM
-
-The executables are unsigned. If Windows SmartScreen blocks the first launch,
-select *More info > Run anyway*.
-
-### WinGet
-
-After the package is accepted into the WinGet community repository, install it
-with:
+Install Rust and the Visual Studio C++ build tools on Windows:
 
 ```powershell
-winget install --id calebrob6.VSRecent --exact
+winget install --id Rustlang.Rustup --exact
+winget install --id Microsoft.VisualStudio.2022.BuildTools --exact --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 ```
 
-The submission-ready manifests are in `winget\manifests`.
-
-## Install
-
-Install the latest release:
+Build the optimized executable:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/calebrob6/vsrecent/main/install.ps1)))
-```
-
-It detects x64 or ARM64, downloads the latest release to
-`%LOCALAPPDATA%\Programs\VS Recent`, and creates a Start Menu shortcut. The
-installation does not require administrator rights.
-
-When running `install.ps1` from a checkout, use `-Version 0.3.0` to install a
-specific release, `-Hotkey "CTRL+ALT+R"` to assign a shortcut hotkey,
-`-NoShortcut` to install only the executable, or `-Launch` to run VS Recent
-after installation.
-
-## Files
-
-| File          | Purpose                                                       |
-| ------------- | ------------------------------------------------------------- |
-| `VsRecent.cs` | Form, filter, launch logic, JSON parsing                      |
-| `Sqlite.cs`   | P/Invoke wrapper around Windows' built-in `winsqlite3.dll`    |
-| `vsrecent.csproj` | SDK-style project (.NET 9, WinForms, single-file publish) |
-| `vsrecent.ico`| App icon (multi-size, embedded in EXE)                        |
-| `_make_icon.py` | Regenerates `vsrecent.ico` (requires Python + Pillow)       |
-| `build.cmd`   | Publishes for the host architecture                           |
-| `install.ps1` | Downloads and installs the latest release for the current user |
-| `install_hotkey.ps1` | Creates a Start-Menu shortcut with a global hotkey     |
-| `vsrecent_hotkey.ahk`| AutoHotkey v2 global `Win+key` shortcut                  |
-| `.github/workflows/release.yml` | CI: builds win-x64 + win-arm64 and publishes a GitHub Release on `v*` tag |
-
-## Build locally
-
-Install the [.NET 9 SDK](https://dotnet.microsoft.com/download), then run:
-
-```
 build.cmd
 ```
 
-The script detects the host architecture and writes the executable to
-`publish\<rid>\vsrecent.exe`. The equivalent x64 command is:
+The result is `publish\vsrecent.exe`. For a UI smoke test that does not depend on local VS Code history:
 
-```
-dotnet publish vsrecent.csproj -c Release -r win-x64 --self-contained=true -o publish\win-x64
-```
-
-## Cut a release
-
-Create and push a `v*` tag:
-
-```
-git tag v0.1.0
-git push --tags
+```powershell
+cargo run --release -- --demo
 ```
 
-`.github/workflows/release.yml` builds both architectures and attaches both
-executables to a GitHub Release. The tag supplies the release version;
-`<Version>` in `vsrecent.csproj` applies to local builds.
+CI builds both supported architectures on native GitHub-hosted runners:
 
-## Run
+| Artifact | Rust target | Runner |
+| --- | --- | --- |
+| `vsrecent-win-x64.exe` | `x86_64-pc-windows-msvc` | `windows-latest` |
+| `vsrecent-win-arm64.exe` | `aarch64-pc-windows-msvc` | `windows-11-arm` |
 
-Run `vsrecent.exe`. The window opens on the active monitor with the filter
-focused.
+The matrix runs for every pull request and manual workflow dispatch. Pushing a `v*` tag builds both executables and attaches them to a GitHub Release.
 
-### Keys
+## Keys
 
-| Key                  | Action                                            |
-| -------------------- | ------------------------------------------------- |
-| Type                 | Filter label, URI, and remote name using case-insensitive AND tokens |
-| `Up` / `Down`        | Move highlight up / down without leaving the filter |
-| `PgUp` / `PgDn`      | Move highlight by 8 rows                          |
-| `Ctrl+Home` / `End`  | Jump to first / last visible entry                |
-| `Enter`              | Launch highlighted entry in VS Code, then close   |
-| `Ctrl+Enter`         | Launch in a new VS Code window, then close        |
-| `Shift+Enter`        | Launch and keep VS Recent open                    |
-| `Ctrl+Shift+Enter`   | Launch in a new window and keep VS Recent open    |
-| `Alt+R`              | Open the Remote dropdown                          |
-| Double-click         | Same as Enter on that row                         |
-| `Esc`                | Close without launching                           |
+| Key | Action |
+| --- | --- |
+| Type | Filter recent folders |
+| `Up` / `Down` | Move the selection |
+| `PgUp` / `PgDn` | Move by eight rows |
+| `Ctrl+Home` / `Ctrl+End` | Select the first or last result |
+| `Enter` | Open the selected folder and close |
+| `Ctrl+Enter` | Open in a new VS Code window and close |
+| `Shift+Enter` | Open and keep the picker visible |
+| `Esc` | Close |
 
-### Filtering by remote
+## Fast taskbar launch
 
-The **Remote** dropdown lists each remote kind with its entry count. Its
-selection combines with the text filter. For example, select **WSL** and type
-`dotfiles` to show matching WSL entries. Remote names are also searchable, so
-queries such as `local foo` and `wsl ml` work without the dropdown.
+Copy `vsrecent.exe` to a stable location, launch it once, right-click its taskbar icon, and select **Pin to taskbar**. Move it to the first taskbar position to launch it with `Win+1`.
 
-## Launch shortcuts
+The included `install.ps1` installs release artifacts and creates a Start Menu shortcut. `vsrecent_hotkey.ahk` remains available for a dedicated global shortcut.
 
-### Windows shortcut
+## Implementation
 
-Run `install_hotkey.ps1` to create a Start Menu shortcut and assign a global
-hotkey:
-
-```
-powershell -ExecutionPolicy Bypass -File install_hotkey.ps1 -ExePath "C:\path\to\vsrecent.exe" -Hotkey "CTRL+ALT+R"
-```
-
-The shortcut is written to
-`%APPDATA%\Microsoft\Windows\Start Menu\Programs\VS Recent.lnk`. Shortcut
-hotkeys must start with `Ctrl+Alt`, `Ctrl+Shift`, or `Shift+Alt`. Windows may
-delay the first shortcut launch by 200-500 ms.
-
-### AutoHotkey
-
-`vsrecent_hotkey.ahk` requires
-[AutoHotkey v2](https://www.autohotkey.com/) and expects `vsrecent.exe` in the
-same directory. It binds **`Win+Shift+R`** by default. Edit the script to
-change the binding, or add a shortcut to the script in `shell:startup` to run
-it at logon.
-
-### Taskbar
-
-Pin `vsrecent.exe` to the taskbar to launch it with the corresponding
-`Win+1` through `Win+9` shortcut.
-
-## Notes
-
-- The database is opened read-only so VS Code can use it concurrently. If the
-  live database cannot be read, VS Recent copies `state.vscdb`, `-wal`, and
-  `-shm` to `%TEMP%` and reads the snapshot.
-- Only entries with a `folderUri` are shown. Single-file `fileUri` entries are
-  skipped.
-- `Code.exe` is resolved in this order:
-  1. `%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe`
-  2. `%PROGRAMFILES%\Microsoft VS Code\Code.exe`
-  3. `%PROGRAMFILES(X86)%\Microsoft VS Code\Code.exe`
-  4. `code` on `PATH`
+Startup deliberately performs only native window-class registration and control creation on the UI thread. Once the first paint is requested, a worker thread opens the VS Code database read-only, parses its recent-folder JSON, builds the search index, and posts the completed list to the UI thread. If the live WAL database cannot be read, it snapshots the database and its `-wal` and `-shm` files into a process-specific temporary directory and retries.
 
 ## License
 
