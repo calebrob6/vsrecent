@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Why VS Recent starts faster after moving from C# WinForms to Rust and native Win32.">
-  <title>Why VS Recent starts faster in Rust</title>
+  <meta name="description" content="VS Recent is a fast native Windows picker for folders in VS Code's Open Recent history.">
+  <title>VS Recent - open a recent VS Code folder fast</title>
   <script>
     (() => {
       const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
@@ -142,9 +142,20 @@
       font-size: 12px;
     }
 
-    .header-note {
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-size: 14px;
+    }
+
+    .nav a {
       color: var(--cp-text-muted);
-      font-size: 13px;
+      text-decoration: none;
+    }
+
+    .nav a:hover {
+      color: var(--cp-accent);
     }
 
     main {
@@ -208,11 +219,46 @@
       font-size: 20px;
     }
 
-    .plain-note {
-      margin-top: 22px;
-      padding: 14px 16px;
-      border-left: 3px solid var(--cp-accent);
-      background: var(--cp-accent-soft);
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin: 24px 0 10px;
+    }
+
+    .button {
+      display: inline-block;
+      padding: 10px 14px;
+      border: 1px solid var(--cp-accent);
+      border-radius: 0.625rem;
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .button:hover {
+      border-color: var(--cp-accent-hover);
+      background: var(--cp-accent-hover);
+      color: var(--cp-accent-fg);
+    }
+
+    .button.secondary {
+      border-color: var(--cp-border-strong);
+      background: var(--cp-surface);
+      color: var(--cp-text);
+    }
+
+    .button.secondary:hover {
+      border-color: var(--cp-accent);
+      color: var(--cp-accent);
+    }
+
+    .download-note {
+      color: var(--cp-text-muted);
+      font-size: 14px;
     }
 
     .demo {
@@ -483,7 +529,7 @@
         margin-top: 8px;
       }
 
-      .header-note {
+      .nav {
         display: none;
       }
 
@@ -536,31 +582,56 @@
         <span class="brand-mark" aria-hidden="true">&gt;_</span>
         <span>VS Recent</span>
       </a>
-      <span class="header-note">Startup comparison</span>
+      <nav class="nav" aria-label="Main navigation">
+        <a href="#download">Download</a>
+        <a href="#startup">Startup</a>
+        <a href="https://github.com/calebrob6/vsrecent">GitHub</a>
+      </nav>
     </div>
   </header>
 
   <main class="page">
     <div class="intro">
-      <p class="kicker">C# WinForms and Rust Win32</p>
-      <h1>Why the Rust version starts faster</h1>
+      <p class="kicker">Instant recent-folder picker for Windows</p>
+      <h1>Open a recent VS Code folder, fast</h1>
       <div class="intro-layout">
         <div class="intro-copy">
-          <p class="summary">VS Recent is a small Windows picker for folders in VS Code's Open Recent history. It is designed to appear as soon as the user presses a taskbar shortcut, accept a few filter characters, and open the selected folder.</p>
-          <p class="summary">The first implementation used C# and WinForms. Version 0.5.0 replaced it with Rust and direct Win32 calls to reduce the delay between starting the process and seeing the picker.</p>
-          <p class="summary">The C# version usually took 359-390 ms to show its first window. The Rust version took 63-85 ms on the same machine. Rust starts less software, and the app now paints its window before reading VS Code history.</p>
-          <p class="plain-note">The new window appears about five times sooner and stays below the commonly used 100 ms limit for an interaction to feel immediate.</p>
+          <p class="summary">VS Recent reads VS Code's Open Recent history and gives you a small, searchable picker. Type part of a folder name, choose a result, and press Enter.</p>
+          <p class="summary">Pin it to the Windows taskbar and use <code>Win+1</code> through <code>Win+9</code> to open it. The native Rust executable is available for Windows on ARM and x64.</p>
+          <div class="actions" id="download">
+            <a class="button" href="https://github.com/calebrob6/vsrecent/releases/latest/download/vsrecent-win-arm64.exe">Download ARM64</a>
+            <a class="button secondary" href="https://github.com/calebrob6/vsrecent/releases/latest/download/vsrecent-win-x64.exe">Download x64</a>
+          </div>
+          <p class="download-note">Use ARM64 on Windows on ARM devices. Use x64 on Intel and AMD Windows PCs. <a href="https://github.com/calebrob6/vsrecent/releases/latest">View release notes</a>.</p>
         </div>
         <figure class="demo">
-          <img class="demo-light" src="../images/screenshot-light.png" width="602" height="491" alt="VS Recent running in the Windows light theme">
-          <img class="demo-dark" src="../images/screenshot-dark.png" width="602" height="491" alt="VS Recent running in the Windows dark theme">
+          <img class="demo-light" src="images/screenshot-light.png" width="602" height="491" alt="VS Recent running in the Windows light theme">
+          <img class="demo-dark" src="images/screenshot-dark.png" width="602" height="491" alt="VS Recent running in the Windows dark theme">
           <figcaption><q>I want this to display <em>immediately</em> when I hit a hotkey, so that I can open a vscode folder.</q></figcaption>
         </figure>
       </div>
     </div>
 
-    <section aria-labelledby="timing-heading">
-      <h2 id="timing-heading">Measured startup time</h2>
+    <section aria-labelledby="features-heading">
+      <h2 id="features-heading">A small launcher for one job</h2>
+      <ul>
+        <li>Search folder names, full URIs, and remote types with case-insensitive AND matching.</li>
+        <li>Open local folders, WSL, SSH, Dev Containers, Codespaces, tunnels, and GitHub repositories.</li>
+        <li>Use the keyboard for filtering, selection, and opening a new VS Code window.</li>
+        <li>Follow the Windows light or dark app theme.</li>
+        <li>Run as one small executable with no separate runtime installation.</li>
+      </ul>
+      <p>VS Recent is also available through WinGet:</p>
+      <p><code>winget install --id calebrob6.VSRecent --exact</code></p>
+    </section>
+
+    <section id="startup" aria-labelledby="startup-heading">
+      <p class="kicker">How we made startup fast</p>
+      <h2 id="startup-heading">Show the window first</h2>
+      <p>The first implementation used C# and WinForms. Version 0.5.0 replaced it with Rust and direct Win32 calls. The old program also loaded the VS Code database before creating its form. The new program paints the picker first and loads history on a worker thread.</p>
+      <p>The C# version usually took 359-390 ms to show its first window. The Rust version took 63-85 ms on the same machine. The new window appears about five times sooner and stays below the commonly used 100 ms limit for an interaction to feel immediate.</p>
+
+      <h3 id="timing-heading">Measured startup time</h3>
       <p>The chart uses a 0-400 ms scale. The dashed line marks 100 ms. Jakob Nielsen describes 100 ms as roughly the limit at which a system still feels like it reacts instantly.</p>
 
       <div class="chart" role="img" aria-label="Rust startup measured 63 to 85 milliseconds, below the 100 millisecond perception line. C# startup measured 359 to 390 milliseconds.">
@@ -735,7 +806,7 @@
   </main>
 
   <footer>
-    <div class="page">VS Recent startup comparison for the former C# build and the current Rust build.</div>
+    <div class="page">VS Recent is open source under the MIT License. <a href="https://github.com/calebrob6/vsrecent">View the source on GitHub</a>.</div>
   </footer>
 </body>
 </html>
