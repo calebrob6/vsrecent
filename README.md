@@ -52,6 +52,16 @@ CI builds both supported architectures on native GitHub-hosted runners:
 
 The matrix runs for every pull request and manual workflow dispatch. Pushing a `v*` tag builds both executables and attaches them to a GitHub Release.
 
+Compare startup-to-first-window performance between two optimized builds on the same machine:
+
+```powershell
+.\scripts\benchmark-startup.ps1 `
+    -BaselineExecutable .\artifacts\main\vsrecent.exe `
+    -CandidateExecutable .\publish\vsrecent.exe
+```
+
+The benchmark checks that both executables have the same architecture, performs warmups, and reports median and p95 startup times. Close any running VS Recent window before starting it.
+
 ## Keys
 
 | Key | Action |

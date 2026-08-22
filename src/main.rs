@@ -7,7 +7,10 @@ use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
-use windows_sys::Win32::Foundation::{COLORREF, GetLastError, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use std::time::Duration;
+use windows_sys::Win32::Foundation::{
+    COLORREF, CloseHandle, GetLastError, HANDLE, HWND, LPARAM, LRESULT, RECT, WPARAM,
+};
 use windows_sys::Win32::Graphics::Gdi::{
     CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH,
     DEFAULT_QUALITY, DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteObject,
@@ -17,15 +20,15 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{
-    DRAWITEMSTRUCT, EM_SETSEL, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx,
-    ODS_SELECTED,
+    DRAWITEMSTRUCT, EM_GETRECT, EM_SETSEL, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX,
+    InitCommonControlsEx, ODS_SELECTED,
 };
 use windows_sys::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow, SetProcessDpiAwarenessContext,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, SetFocus, VK_CONTROL, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME, VK_NEXT, VK_PRIOR,
-    VK_R, VK_RETURN, VK_SHIFT, VK_UP,
+    VK_RETURN, VK_SHIFT, VK_UP,
 };
 use windows_sys::Win32::UI::Shell::{
     DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass, ShellExecuteW,
@@ -44,6 +47,47 @@ const SS_ENDELLIPSIS: u32 = 0x0000_4000;
 const SS_ETCHEDHORZ: u32 = 0x0000_0010;
 const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
 const RRF_RT_REG_DWORD: u32 = 0x0000_0018;
+const ERROR_ALREADY_EXISTS: u32 = 183;
+const INSTANCE_MUTEX_NAME: &[u16] = &[
+    b'L' as u16,
+    b'o' as u16,
+    b'c' as u16,
+    b'a' as u16,
+    b'l' as u16,
+    b'\\' as u16,
+    b'V' as u16,
+    b'S' as u16,
+    b'R' as u16,
+    b'e' as u16,
+    b'c' as u16,
+    b'e' as u16,
+    b'n' as u16,
+    b't' as u16,
+    b'S' as u16,
+    b'i' as u16,
+    b'n' as u16,
+    b'g' as u16,
+    b'l' as u16,
+    b'e' as u16,
+    b'I' as u16,
+    b'n' as u16,
+    b's' as u16,
+    b't' as u16,
+    b'a' as u16,
+    b'n' as u16,
+    b'c' as u16,
+    b'e' as u16,
+    0,
+];
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn CreateMutexW(
+        mutex_attributes: *const c_void,
+        initial_owner: i32,
+        name: *const u16,
+    ) -> HANDLE;
+}
 
 #[link(name = "advapi32")]
 unsafe extern "system" {
@@ -109,6 +153,14 @@ struct Theme {
     muted: COLORREF,
 }
 
+struct InstanceGuard(HANDLE);
+
+impl Drop for InstanceGuard {
+    fn drop(&mut self) {
+        unsafe { CloseHandle(self.0) };
+    }
+}
+
 impl Theme {
     fn light() -> Self {
         Self {
@@ -167,6 +219,9 @@ fn run() -> Result<(), String> {
             dwICC: ICC_STANDARD_CLASSES,
         });
         let arguments: Vec<String> = std::env::args().collect();
+        let Some(_instance_guard) = claim_instance()? else {
+            return Ok(());
+        };
         let theme = requested_theme(&arguments).unwrap_or_else(system_theme);
         let instance = GetModuleHandleW(std::ptr::null());
         let cursor = LoadCursorW(std::ptr::null_mut(), IDC_ARROW);
@@ -257,6 +312,37 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+fn claim_instance() -> Result<Option<InstanceGuard>, String> {
+    let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, INSTANCE_MUTEX_NAME.as_ptr()) };
+    if mutex.is_null() {
+        return Err(format!(
+            "could not create the instance mutex ({})",
+            unsafe { GetLastError() }
+        ));
+    }
+    if unsafe { GetLastError() } != ERROR_ALREADY_EXISTS {
+        return Ok(Some(InstanceGuard(mutex)));
+    }
+
+    unsafe { CloseHandle(mutex) };
+    for _ in 0..50 {
+        let window = unsafe { FindWindowW(CLASS_NAME.as_ptr(), std::ptr::null()) };
+        if !window.is_null() {
+            unsafe {
+                if IsIconic(window) != 0 {
+                    ShowWindow(window, SW_RESTORE);
+                } else {
+                    ShowWindow(window, SW_SHOW);
+                }
+                SetForegroundWindow(window);
+            }
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    Ok(None)
+}
+
 fn requested_theme(arguments: &[String]) -> Option<Theme> {
     if arguments
         .iter()
@@ -299,16 +385,8 @@ unsafe fn handle_picker_key(window: HWND, message: &MSG) -> bool {
     if pointer.is_null() {
         return false;
     }
-    let (filter, remote_filter, list) =
-        unsafe { ((*pointer).filter, (*pointer).remote_filter, (*pointer).list) };
+    let (filter, list) = unsafe { ((*pointer).filter, (*pointer).list) };
 
-    if message.message == WM_SYSKEYDOWN && message.wParam as u16 == VK_R {
-        unsafe {
-            SetFocus(remote_filter);
-            SendMessageW(remote_filter, CB_SHOWDROPDOWN, 1, 0);
-        }
-        return true;
-    }
     if message.message != WM_KEYDOWN {
         return false;
     }
@@ -455,7 +533,10 @@ unsafe extern "system" fn window_proc(
             let id = wparam & 0xffff;
             let notification = (wparam >> 16) & 0xffff;
             if id == ID_FILTER && notification == EN_CHANGE as usize {
-                unsafe { apply_filter(window) };
+                unsafe {
+                    InvalidateRect(lparam as HWND, std::ptr::null(), 1);
+                    apply_filter(window);
+                }
             } else if id == ID_LIST && notification == LBN_DBLCLK as usize {
                 unsafe { launch_selected(window) };
             } else if id == ID_LIST && notification == LBN_SELCHANGE as usize {
@@ -604,10 +685,8 @@ unsafe fn create_controls(window: HWND) {
         CreateWindowExW(
             0,
             static_class.as_ptr(),
-            wide(
-                "Up/Down Select | Enter Open | Ctrl+Enter New | Shift+Enter Keep | Alt+R Remote | Esc Close",
-            )
-            .as_ptr(),
+            wide("Up/Down Select | Enter Open | Ctrl+Enter New | Shift+Enter Keep | Esc Close")
+                .as_ptr(),
             WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_ENDELLIPSIS,
             10,
             455,
@@ -690,10 +769,9 @@ unsafe extern "system" fn filter_proc(
             let dc = unsafe { GetDC(edit) };
             if !dc.is_null() {
                 let mut bounds = RECT::default();
-                unsafe { GetClientRect(edit, &mut bounds) };
-                let dpi = unsafe { GetDpiForWindow(edit) } as i32;
-                bounds.left += (4 * dpi / 96).max(3);
-                let old_font = unsafe { SelectObject(dc, (*pointer).font) };
+                unsafe { SendMessageW(edit, EM_GETRECT, 0, (&mut bounds as *mut RECT) as LPARAM) };
+                let font = unsafe { SendMessageW(edit, WM_GETFONT, 0, 0) as HFONT };
+                let old_font = unsafe { SelectObject(dc, font) };
                 unsafe {
                     SetBkMode(dc, TRANSPARENT as i32);
                     SetTextColor(dc, (*pointer).theme.muted);
@@ -752,26 +830,30 @@ unsafe fn layout_controls(window: HWND, width: i32, height: i32) {
     let dpi = unsafe { GetDpiForWindow(window) } as i32;
     let margin = (10 * dpi / 96).max(8);
     let gap = (8 * dpi / 96).max(6);
-    let control_height = (32 * dpi / 96).max(28);
+    let requested_control_height = (32 * dpi / 96).max(28);
     let remote_width = (170 * dpi / 96).max(140);
-    let list_top = margin + control_height + gap;
     let footer_height = (25 * dpi / 96).max(22);
     let footer_top = height - margin - footer_height;
     unsafe {
+        MoveWindow(
+            (*pointer).remote_filter,
+            width - margin - remote_width,
+            margin,
+            remote_width,
+            requested_control_height * 10,
+            1,
+        );
+        let mut remote_bounds = RECT::default();
+        GetWindowRect((*pointer).remote_filter, &mut remote_bounds);
+        let control_height = (remote_bounds.bottom - remote_bounds.top)
+            .clamp(requested_control_height / 2, requested_control_height * 2);
+        let list_top = margin + control_height + gap;
         MoveWindow(
             (*pointer).filter,
             margin,
             margin,
             (width - margin * 2 - gap - remote_width).max(80),
             control_height,
-            1,
-        );
-        MoveWindow(
-            (*pointer).remote_filter,
-            width - margin - remote_width,
-            margin,
-            remote_width,
-            control_height * 10,
             1,
         );
         MoveWindow(
