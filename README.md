@@ -12,6 +12,14 @@ shared in case it is useful to anyone else.
 | --- | --- |
 | ![VS Recent light mode](images/screenshot-light.png) | ![VS Recent dark mode](images/screenshot-dark.png) |
 
+## Install
+
+Install the latest x64 or ARM64 release with Windows Package Manager:
+
+```powershell
+winget install --id calebrob6.VSRecent --exact
+```
+
 ## Features
 
 - Reads `%USERPROFILE%\.vscode-shared\sharedStorage\state.vscdb` through Windows' built-in `winsqlite3.dll`.
