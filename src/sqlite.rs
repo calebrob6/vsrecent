@@ -140,3 +140,79 @@ impl Drop for Snapshot {
         let _ = fs::remove_dir_all(&self.directory);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SQLITE_OPEN_READWRITE: c_int = 0x0000_0002;
+    const SQLITE_OPEN_CREATE: c_int = 0x0000_0004;
+    const CREATE_ITEM_TABLE: &str =
+        "CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)";
+
+    /// A database in its own temporary directory, laid out like VS Code's shared storage.
+    struct TestDatabase {
+        directory: PathBuf,
+        path: PathBuf,
+    }
+
+    impl TestDatabase {
+        fn create(name: &str, statements: &[&str]) -> Self {
+            let directory =
+                std::env::temp_dir().join(format!("vsrecent_test_{}_{name}", std::process::id()));
+            fs::create_dir_all(&directory).unwrap();
+            let path = directory.join("state.vscdb");
+            let c_path = CString::new(path.to_string_lossy().as_bytes()).unwrap();
+            let mut db = std::ptr::null_mut();
+            unsafe {
+                let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
+                let opened = sqlite3_open_v2(c_path.as_ptr(), &mut db, flags, std::ptr::null());
+                assert_eq!(opened, SQLITE_OK);
+                for statement in statements {
+                    let sql = CString::new(*statement).unwrap();
+                    let mut prepared = std::ptr::null_mut();
+                    let result = sqlite3_prepare_v2(
+                        db,
+                        sql.as_ptr(),
+                        -1,
+                        &mut prepared,
+                        std::ptr::null_mut(),
+                    );
+                    assert_eq!(result, SQLITE_OK, "{statement}");
+                    let step = sqlite3_step(prepared);
+                    assert!(step == SQLITE_DONE || step == SQLITE_ROW, "{statement}");
+                    sqlite3_finalize(prepared);
+                }
+                sqlite3_close(db);
+            }
+            Self { directory, path }
+        }
+    }
+
+    impl Drop for TestDatabase {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.directory);
+        }
+    }
+
+    #[test]
+    fn reads_history_from_a_wal_database() {
+        let json = r#"{"entries":[{"folderUri":"file:///code/project"}]}"#;
+        let insert =
+            format!("INSERT INTO ItemTable VALUES ('history.recentlyOpenedPathsList', '{json}')");
+        let database = TestDatabase::create(
+            "wal",
+            &["PRAGMA journal_mode=WAL", CREATE_ITEM_TABLE, &insert],
+        );
+        assert_eq!(
+            read_recent_json(&database.path).unwrap().as_deref(),
+            Some(json)
+        );
+    }
+
+    #[test]
+    fn reports_absent_history() {
+        let database = TestDatabase::create("absent", &[CREATE_ITEM_TABLE]);
+        assert_eq!(read_recent_json(&database.path).unwrap(), None);
+    }
+}
