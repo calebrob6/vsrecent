@@ -6,9 +6,12 @@ const SQLITE_OK: c_int = 0;
 const SQLITE_ROW: c_int = 100;
 const SQLITE_DONE: c_int = 101;
 const SQLITE_OPEN_READONLY: c_int = 0x0000_0001;
+const SQLITE_OPEN_READWRITE: c_int = 0x0000_0002;
 const SQLITE_OPEN_NOMUTEX: c_int = 0x0000_8000;
 
-#[link(name = "winsqlite3")]
+// Both platforms ship SQLite: `winsqlite3.dll` on Windows and `libsqlite3.dylib` on macOS.
+#[cfg_attr(windows, link(name = "winsqlite3"))]
+#[cfg_attr(not(windows), link(name = "sqlite3"))]
 unsafe extern "C" {
     fn sqlite3_open_v2(
         filename: *const c_char,
@@ -35,17 +38,21 @@ pub fn read_recent_json(db_path: &Path) -> Result<Option<String>, String> {
     const SQL: &str =
         "SELECT value FROM ItemTable WHERE key='history.recentlyOpenedPathsList' LIMIT 1";
 
-    match read_single_text(db_path, SQL) {
+    // VS Code's own database is only ever opened read-only.
+    match read_single_text(db_path, SQL, SQLITE_OPEN_READONLY) {
         Ok(value) => Ok(value),
         Err(first_error) => {
             let snapshot = Snapshot::create(db_path)
                 .map_err(|error| format!("{first_error}; snapshot failed: {error}"))?;
-            read_single_text(&snapshot.db_path, SQL)
+            // The snapshot is a private copy, so SQLite may write next to it. A database in WAL
+            // mode needs its `-wal` and `-shm` files. VS Code removes them when it exits, and
+            // the SQLite that ships with macOS will not create them for a read-only connection.
+            read_single_text(&snapshot.db_path, SQL, SQLITE_OPEN_READWRITE)
         }
     }
 }
 
-fn read_single_text(path: &Path, sql: &str) -> Result<Option<String>, String> {
+fn read_single_text(path: &Path, sql: &str, access: c_int) -> Result<Option<String>, String> {
     let path = CString::new(path.to_string_lossy().as_bytes())
         .map_err(|_| "database path contains a NUL byte".to_string())?;
     let sql = CString::new(sql).expect("static SQL has no NUL bytes");
@@ -56,7 +63,7 @@ fn read_single_text(path: &Path, sql: &str) -> Result<Option<String>, String> {
         let open_result = sqlite3_open_v2(
             path.as_ptr(),
             &mut db,
-            SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX,
+            access | SQLITE_OPEN_NOMUTEX,
             std::ptr::null(),
         );
         if open_result != SQLITE_OK {
@@ -136,5 +143,102 @@ impl Snapshot {
 impl Drop for Snapshot {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.directory);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SQLITE_OPEN_CREATE: c_int = 0x0000_0004;
+    const CREATE_ITEM_TABLE: &str =
+        "CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)";
+
+    /// A database in its own temporary directory, laid out like VS Code's shared storage.
+    struct TestDatabase {
+        directory: PathBuf,
+        path: PathBuf,
+    }
+
+    impl TestDatabase {
+        fn create(name: &str, statements: &[&str]) -> Self {
+            let directory =
+                std::env::temp_dir().join(format!("vsrecent_test_{}_{name}", std::process::id()));
+            fs::create_dir_all(&directory).unwrap();
+            let path = directory.join("state.vscdb");
+            let c_path = CString::new(path.to_string_lossy().as_bytes()).unwrap();
+            let mut db = std::ptr::null_mut();
+            unsafe {
+                let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
+                let opened = sqlite3_open_v2(c_path.as_ptr(), &mut db, flags, std::ptr::null());
+                assert_eq!(opened, SQLITE_OK);
+                for statement in statements {
+                    let sql = CString::new(*statement).unwrap();
+                    let mut prepared = std::ptr::null_mut();
+                    let result = sqlite3_prepare_v2(
+                        db,
+                        sql.as_ptr(),
+                        -1,
+                        &mut prepared,
+                        std::ptr::null_mut(),
+                    );
+                    assert_eq!(result, SQLITE_OK, "{statement}");
+                    let step = sqlite3_step(prepared);
+                    assert!(step == SQLITE_DONE || step == SQLITE_ROW, "{statement}");
+                    sqlite3_finalize(prepared);
+                }
+                sqlite3_close(db);
+            }
+            Self { directory, path }
+        }
+    }
+
+    impl Drop for TestDatabase {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.directory);
+        }
+    }
+
+    #[test]
+    fn reads_history_from_a_wal_database() {
+        let json = r#"{"entries":[{"folderUri":"file:///code/project"}]}"#;
+        let insert =
+            format!("INSERT INTO ItemTable VALUES ('history.recentlyOpenedPathsList', '{json}')");
+        let database = TestDatabase::create(
+            "wal",
+            &["PRAGMA journal_mode=WAL", CREATE_ITEM_TABLE, &insert],
+        );
+        assert_eq!(
+            read_recent_json(&database.path).unwrap().as_deref(),
+            Some(json)
+        );
+    }
+
+    /// VS Code leaves a WAL database without its `-wal` and `-shm` files when it exits.
+    #[test]
+    fn reads_a_wal_database_without_its_companion_files() {
+        let json = r#"{"entries":[{"folderUri":"file:///code/project"}]}"#;
+        let insert =
+            format!("INSERT INTO ItemTable VALUES ('history.recentlyOpenedPathsList', '{json}')");
+        let database = TestDatabase::create(
+            "closed",
+            &["PRAGMA journal_mode=WAL", CREATE_ITEM_TABLE, &insert],
+        );
+        // The SQLite that ships with macOS keeps the files, already checkpointed, on close.
+        for suffix in ["-wal", "-shm"] {
+            let companion = PathBuf::from(format!("{}{suffix}", database.path.display()));
+            let _ = fs::remove_file(&companion);
+            assert!(!companion.exists());
+        }
+        assert_eq!(
+            read_recent_json(&database.path).unwrap().as_deref(),
+            Some(json)
+        );
+    }
+
+    #[test]
+    fn reports_absent_history() {
+        let database = TestDatabase::create("absent", &[CREATE_ITEM_TABLE]);
+        assert_eq!(read_recent_json(&database.path).unwrap(), None);
     }
 }

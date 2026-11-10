@@ -47,8 +47,50 @@ jobs:
           path: publish/${{ matrix.rid }}/vsrecent-${{ matrix.rid }}.exe
           if-no-files-found: error
 
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Test
+        run: cargo test --locked
+
+      # A debug build keeps the Objective-C bindings' runtime checks of every message signature.
+      - name: Smoke test debug build
+        run: |
+          cargo build --locked
+          sh scripts/smoke-test-macos.sh target/debug/vsrecent publish/screenshots/macos-light.png --light
+
+      - name: Build macos-universal
+        run: sh build-macos.sh
+
+      - name: Smoke test application bundle
+        run: |
+          lipo -archs "publish/VS Recent.app/Contents/MacOS/vsrecent"
+          codesign --verify --strict --verbose=2 "publish/VS Recent.app"
+          sh scripts/smoke-test-macos.sh "publish/VS Recent.app/Contents/MacOS/vsrecent" \
+            publish/screenshots/macos-dark.png --dark
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsrecent-macos-universal
+          path: publish/vsrecent-macos-universal.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-screenshots
+          path: publish/screenshots/*.png
+          if-no-files-found: warn
+
   release:
-    needs: build
+    needs: [build, build-macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -56,6 +98,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: vsrecent-*
           path: artifacts
           merge-multiple: true
 
@@ -64,6 +107,8 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*.exe
+          files: |
+            artifacts/*.exe
+            artifacts/*.zip
           generate_release_notes: true
           fail_on_unmatched_files: true
