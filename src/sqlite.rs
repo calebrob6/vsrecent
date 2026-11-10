@@ -8,7 +8,9 @@ const SQLITE_DONE: c_int = 101;
 const SQLITE_OPEN_READONLY: c_int = 0x0000_0001;
 const SQLITE_OPEN_NOMUTEX: c_int = 0x0000_8000;
 
-#[link(name = "winsqlite3")]
+// Both platforms ship SQLite: `winsqlite3.dll` on Windows and `libsqlite3.dylib` on macOS.
+#[cfg_attr(windows, link(name = "winsqlite3"))]
+#[cfg_attr(not(windows), link(name = "sqlite3"))]
 unsafe extern "C" {
     fn sqlite3_open_v2(
         filename: *const c_char,

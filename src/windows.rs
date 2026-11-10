@@ -1,15 +1,14 @@
-#![windows_subsystem = "windows"]
+//! Win32 front end.
 
-mod sqlite;
-
-use serde_json::Value;
+use crate::history::{self, Entry};
+use crate::theme::{self, Theme, rgb, row_colors};
 use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use windows_sys::Win32::Foundation::{
-    COLORREF, CloseHandle, GetLastError, HANDLE, HWND, LPARAM, LRESULT, RECT, WPARAM,
+    CloseHandle, GetLastError, HANDLE, HWND, LPARAM, LRESULT, RECT, WPARAM,
 };
 use windows_sys::Win32::Graphics::Gdi::{
     CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH,
@@ -117,15 +116,6 @@ unsafe extern "system" {
     fn SetWindowTheme(window: HWND, sub_app_name: *const u16, sub_id_list: *const u16) -> i32;
 }
 
-#[derive(Clone, Debug)]
-struct Entry {
-    uri: String,
-    label: String,
-    remote: String,
-    remote_key: String,
-    search_key: String,
-}
-
 struct AppState {
     filter: HWND,
     remote_filter: HWND,
@@ -144,42 +134,11 @@ struct AppState {
     control_brush: HBRUSH,
 }
 
-#[derive(Clone, Copy)]
-struct Theme {
-    dark: bool,
-    window: COLORREF,
-    control: COLORREF,
-    text: COLORREF,
-    muted: COLORREF,
-}
-
 struct InstanceGuard(HANDLE);
 
 impl Drop for InstanceGuard {
     fn drop(&mut self) {
         unsafe { CloseHandle(self.0) };
-    }
-}
-
-impl Theme {
-    fn light() -> Self {
-        Self {
-            dark: false,
-            window: rgb(245, 245, 245),
-            control: rgb(255, 255, 255),
-            text: rgb(25, 25, 28),
-            muted: rgb(96, 96, 96),
-        }
-    }
-
-    fn dark() -> Self {
-        Self {
-            dark: true,
-            window: rgb(30, 30, 30),
-            control: rgb(37, 37, 38),
-            text: rgb(232, 232, 232),
-            muted: rgb(165, 165, 165),
-        }
     }
 }
 
@@ -205,7 +164,7 @@ fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn main() {
+pub fn main() {
     if let Err(error) = run() {
         show_error(std::ptr::null_mut(), &error);
     }
@@ -222,7 +181,7 @@ fn run() -> Result<(), String> {
         let Some(_instance_guard) = claim_instance()? else {
             return Ok(());
         };
-        let theme = requested_theme(&arguments).unwrap_or_else(system_theme);
+        let theme = theme::requested_theme(&arguments).unwrap_or_else(system_theme);
         let instance = GetModuleHandleW(std::ptr::null());
         let cursor = LoadCursorW(std::ptr::null_mut(), IDC_ARROW);
         let icon = LoadIconW(instance, 1 as *const u16);
@@ -288,9 +247,9 @@ fn run() -> Result<(), String> {
         std::thread::spawn(move || {
             let window = window_address as HWND;
             let loaded = if demo {
-                Ok(demo_entries())
+                Ok(history::demo_entries())
             } else {
-                load_entries()
+                history::load_entries()
             };
             let payload = Box::into_raw(Box::new(loaded));
             if !alive.load(Ordering::Acquire)
@@ -341,22 +300,6 @@ fn claim_instance() -> Result<Option<InstanceGuard>, String> {
         std::thread::sleep(Duration::from_millis(10));
     }
     Ok(None)
-}
-
-fn requested_theme(arguments: &[String]) -> Option<Theme> {
-    if arguments
-        .iter()
-        .any(|argument| argument.eq_ignore_ascii_case("--dark"))
-    {
-        Some(Theme::dark())
-    } else if arguments
-        .iter()
-        .any(|argument| argument.eq_ignore_ascii_case("--light"))
-    {
-        Some(Theme::light())
-    } else {
-        None
-    }
 }
 
 fn system_theme() -> Theme {
@@ -623,7 +566,7 @@ unsafe fn create_controls(window: HWND) {
     let list_class = wide("LISTBOX");
     let combo_class = wide("COMBOBOX");
     let static_class = wide("STATIC");
-    let loading = wide("Loading recent folders...");
+    let loading = wide(history::LOADING_MESSAGE);
     let empty = wide("");
 
     let filter = unsafe {
@@ -1035,61 +978,6 @@ fn list_item_text(list: HWND, index: usize) -> Vec<u16> {
     }
 }
 
-fn row_colors(remote: &str, dark: bool) -> (COLORREF, COLORREF) {
-    let remote = remote.to_ascii_lowercase();
-    if dark && remote == "local" {
-        (rgb(38, 40, 45), rgb(79, 86, 99))
-    } else if dark && remote.starts_with("wsl") {
-        (rgb(57, 37, 31), rgb(194, 70, 25))
-    } else if dark && remote.starts_with("ssh") {
-        (rgb(31, 44, 61), rgb(31, 92, 173))
-    } else if dark && remote.contains("container") {
-        (rgb(29, 48, 56), rgb(25, 119, 177))
-    } else if dark && (remote == "codespace" || remote == "github") {
-        (rgb(45, 36, 61), rgb(103, 63, 168))
-    } else if dark && remote == "tunnel" {
-        (rgb(28, 52, 49), rgb(0, 116, 104))
-    } else if dark {
-        let hash = remote.bytes().fold(2_166_136_261u32, |value, byte| {
-            (value ^ byte as u32).wrapping_mul(16_777_619)
-        });
-        let palette = [
-            (rgb(58, 43, 27), rgb(166, 91, 0)),
-            (rgb(31, 53, 37), rgb(42, 120, 63)),
-            (rgb(55, 34, 42), rgb(153, 60, 91)),
-            (rgb(36, 40, 61), rgb(67, 79, 164)),
-        ];
-        palette[hash as usize % palette.len()]
-    } else if remote == "local" {
-        (rgb(239, 241, 245), rgb(79, 86, 99))
-    } else if remote.starts_with("wsl") {
-        (rgb(255, 238, 229), rgb(194, 70, 25))
-    } else if remote.starts_with("ssh") {
-        (rgb(232, 241, 255), rgb(31, 92, 173))
-    } else if remote.contains("container") {
-        (rgb(228, 246, 255), rgb(25, 119, 177))
-    } else if remote == "codespace" || remote == "github" {
-        (rgb(241, 234, 255), rgb(103, 63, 168))
-    } else if remote == "tunnel" {
-        (rgb(227, 247, 242), rgb(0, 116, 104))
-    } else {
-        let hash = remote.bytes().fold(2_166_136_261u32, |value, byte| {
-            (value ^ byte as u32).wrapping_mul(16_777_619)
-        });
-        let palette = [
-            (rgb(255, 241, 223), rgb(166, 91, 0)),
-            (rgb(232, 246, 235), rgb(42, 120, 63)),
-            (rgb(250, 233, 239), rgb(153, 60, 91)),
-            (rgb(235, 239, 255), rgb(67, 79, 164)),
-        ];
-        palette[hash as usize % palette.len()]
-    }
-}
-
-const fn rgb(red: u8, green: u8, blue: u8) -> COLORREF {
-    red as u32 | ((green as u32) << 8) | ((blue as u32) << 16)
-}
-
 unsafe fn apply_filter(window: HWND) {
     let pointer = unsafe { state_ptr(window) };
     if pointer.is_null() {
@@ -1097,8 +985,7 @@ unsafe fn apply_filter(window: HWND) {
     }
     let (filter, remote_filter, list) =
         unsafe { ((*pointer).filter, (*pointer).remote_filter, (*pointer).list) };
-    let query = control_text(filter).to_lowercase();
-    let tokens: Vec<&str> = query.split_whitespace().collect();
+    let query = control_text(filter);
     let remote_index = unsafe { SendMessageW(remote_filter, CB_GETCURSEL, 0, 0) };
     let selected_remote = unsafe {
         if remote_index == CB_ERR as isize || remote_index < 0 {
@@ -1112,33 +999,17 @@ unsafe fn apply_filter(window: HWND) {
     };
     let (rows, message) = unsafe {
         let state = &mut *pointer;
-        state.shown.clear();
-        for (index, entry) in state.entries.iter().enumerate() {
-            if selected_remote
-                .as_ref()
-                .is_none_or(|remote| entry.remote_key == *remote)
-                && tokens.iter().all(|token| entry.search_key.contains(token))
-            {
-                state.shown.push(index);
-            }
-        }
+        state.shown = history::matching_entries(&state.entries, &query, selected_remote.as_deref());
         let rows = state
             .shown
             .iter()
-            .map(|index| {
-                let entry = &state.entries[*index];
-                format!("{}    [{}]", entry.label, entry.remote)
-            })
+            .map(|index| history::row_text(&state.entries[*index]))
             .collect::<Vec<_>>();
-        let message = state.load_error.clone().or_else(|| {
-            if state.entries.is_empty() {
-                Some("No recent folders found".to_string())
-            } else if state.shown.is_empty() {
-                Some("No matching folders".to_string())
-            } else {
-                None
-            }
-        });
+        let message = history::status_message(
+            state.load_error.as_deref(),
+            state.entries.len(),
+            state.shown.len(),
+        );
         (rows, message)
     };
 
@@ -1166,22 +1037,15 @@ unsafe fn populate_remote_filter(window: HWND) {
         return;
     }
     let remote_filter = unsafe { (*pointer).remote_filter };
-    let mut counts = std::collections::BTreeMap::<String, (String, usize)>::new();
     unsafe {
-        for entry in &(*pointer).entries {
-            let display = remote_group_display(&entry.remote_key);
-            let count = counts
-                .entry(entry.remote_key.clone())
-                .or_insert((display, 0));
-            count.1 += 1;
-        }
+        let groups = history::remote_groups(&(*pointer).entries);
         SendMessageW(remote_filter, CB_RESETCONTENT, 0, 0);
-        let all = wide(&format!("All remotes ({})", (*pointer).entries.len()));
+        let all = wide(&history::all_remotes_title((*pointer).entries.len()));
         SendMessageW(remote_filter, CB_ADDSTRING, 0, all.as_ptr() as LPARAM);
         (*pointer).remote_keys.clear();
         (*pointer).remote_keys.push(None);
-        for (key, (display, count)) in counts {
-            let text = wide(&format!("{display} ({count})"));
+        for (key, title) in groups {
+            let text = wide(&title);
             SendMessageW(remote_filter, CB_ADDSTRING, 0, text.as_ptr() as LPARAM);
             (*pointer).remote_keys.push(Some(key));
         }
@@ -1263,7 +1127,7 @@ fn find_hidden_code_window(uri: &str) -> HWND {
         .split('/')
         .filter(|part| !part.is_empty())
         .next_back()
-        .map(percent_decode)
+        .map(history::percent_decode)
         .filter(|name| !name.is_empty())
     else {
         return std::ptr::null_mut();
@@ -1350,230 +1214,5 @@ fn show_error(owner: HWND, message: &str) {
             wide("VS Recent").as_ptr(),
             MB_OK | MB_ICONERROR,
         );
-    }
-}
-
-fn load_entries() -> Result<Vec<Entry>, String> {
-    let profile =
-        std::env::var_os("USERPROFILE").ok_or_else(|| "USERPROFILE is not set".to_string())?;
-    let database = PathBuf::from(profile)
-        .join(".vscode-shared")
-        .join("sharedStorage")
-        .join("state.vscdb");
-    if !database.is_file() {
-        return Err(format!("database not found at {}", database.display()));
-    }
-    let json = sqlite::read_recent_json(&database)?
-        .ok_or_else(|| "recent-folder history is missing".to_string())?;
-    parse_entries(&json)
-}
-
-fn parse_entries(json: &str) -> Result<Vec<Entry>, String> {
-    let value: Value =
-        serde_json::from_str(json).map_err(|error| format!("invalid history JSON: {error}"))?;
-    let items = value
-        .get("entries")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "history JSON does not contain an entries array".to_string())?;
-    let mut entries = Vec::with_capacity(items.len());
-    for item in items {
-        let Some(uri) = item.get("folderUri").and_then(Value::as_str) else {
-            continue;
-        };
-        if uri.is_empty() {
-            continue;
-        }
-        let label = item
-            .get("label")
-            .and_then(Value::as_str)
-            .filter(|label| !label.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| default_label(uri));
-        let remote = remote_kind(uri);
-        let remote_key = remote_key(uri);
-        let search_key = format!("{label} {uri} {remote}").to_lowercase();
-        entries.push(Entry {
-            uri: uri.to_string(),
-            label,
-            remote,
-            remote_key,
-            search_key,
-        });
-    }
-    Ok(entries)
-}
-
-fn default_label(uri: &str) -> String {
-    if let Some(path) = uri.strip_prefix("file:///") {
-        percent_decode(path).replace('/', "\\")
-    } else {
-        uri.to_string()
-    }
-}
-
-fn remote_kind(uri: &str) -> String {
-    if uri
-        .get(..5)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("file:"))
-    {
-        return "LOCAL".to_string();
-    }
-    if let Some(rest) = strip_prefix_ascii_case(uri, "vscode-remote://") {
-        let authority = rest.split('/').next().unwrap_or(rest);
-        let decoded = percent_decode(authority);
-        let mut parts = decoded.splitn(2, '+');
-        let kind = parts.next().unwrap_or("");
-        let instance = parts.next().unwrap_or("");
-        return match kind.to_ascii_lowercase().as_str() {
-            "wsl" => format!("WSL: {}", if instance.is_empty() { "?" } else { instance }),
-            "ssh-remote" => {
-                format!("SSH: {}", if instance.is_empty() { "?" } else { instance })
-            }
-            "dev-container" => "DEV CONTAINER".to_string(),
-            "attached-container" => "CONTAINER".to_string(),
-            "codespaces" => "CODESPACE".to_string(),
-            "tunnel" => "TUNNEL".to_string(),
-            _ => kind.to_ascii_uppercase(),
-        };
-    }
-    if strip_prefix_ascii_case(uri, "vscode-vfs://github").is_some() {
-        "GITHUB".to_string()
-    } else {
-        uri.split(':').next().unwrap_or("?").to_ascii_uppercase()
-    }
-}
-
-fn remote_key(uri: &str) -> String {
-    if uri
-        .get(..5)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("file:"))
-    {
-        return "local".to_string();
-    }
-    if let Some(rest) = strip_prefix_ascii_case(uri, "vscode-remote://") {
-        let authority = rest.split('/').next().unwrap_or(rest);
-        let decoded = percent_decode(authority);
-        let kind = decoded.split('+').next().unwrap_or("").to_ascii_lowercase();
-        return match kind.as_str() {
-            "ssh-remote" => "ssh".to_string(),
-            "attached-container" => "container".to_string(),
-            "codespaces" => "codespace".to_string(),
-            _ => kind,
-        };
-    }
-    if strip_prefix_ascii_case(uri, "vscode-vfs://github").is_some() {
-        "github".to_string()
-    } else if strip_prefix_ascii_case(uri, "vscode-vfs://").is_some() {
-        "vfs".to_string()
-    } else {
-        uri.split(':')
-            .next()
-            .filter(|scheme| !scheme.is_empty())
-            .unwrap_or("unknown")
-            .to_ascii_lowercase()
-    }
-}
-
-fn remote_group_display(key: &str) -> String {
-    match key {
-        "local" => "Local".to_string(),
-        "wsl" => "WSL".to_string(),
-        "ssh" => "SSH".to_string(),
-        "dev-container" => "Dev Container".to_string(),
-        "container" => "Container".to_string(),
-        "codespace" => "Codespace".to_string(),
-        "tunnel" => "Tunnel".to_string(),
-        "github" => "GitHub".to_string(),
-        "vfs" => "VFS".to_string(),
-        "unknown" => "Unknown".to_string(),
-        _ => key.to_ascii_uppercase(),
-    }
-}
-
-fn strip_prefix_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
-    value
-        .get(..prefix.len())
-        .filter(|candidate| candidate.eq_ignore_ascii_case(prefix))
-        .map(|_| &value[prefix.len()..])
-}
-
-fn percent_decode(value: &str) -> String {
-    let bytes = value.as_bytes();
-    let mut decoded = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len() {
-            if let (Some(high), Some(low)) = (hex(bytes[index + 1]), hex(bytes[index + 2])) {
-                decoded.push(high * 16 + low);
-                index += 3;
-                continue;
-            }
-        }
-        decoded.push(bytes[index]);
-        index += 1;
-    }
-    String::from_utf8_lossy(&decoded).into_owned()
-}
-
-fn hex(value: u8) -> Option<u8> {
-    match value {
-        b'0'..=b'9' => Some(value - b'0'),
-        b'a'..=b'f' => Some(value - b'a' + 10),
-        b'A'..=b'F' => Some(value - b'A' + 10),
-        _ => None,
-    }
-}
-
-fn demo_entries() -> Vec<Entry> {
-    parse_entries(
-        r#"{"entries":[
-          {"label":"vsrecent-rust","folderUri":"file:///c%3A/Users/caleb/apps/vsrecent-rust"},
-          {"label":"dotfiles","folderUri":"vscode-remote://wsl%2BUbuntu/home/caleb/dotfiles"},
-          {"label":"training","folderUri":"vscode-remote://ssh-remote%2Bgpu-rig/data/training"},
-          {"label":"api-service","folderUri":"vscode-remote://dev-container%2Babc/workspaces/api"}
-        ]}"#,
-    )
-    .expect("demo JSON is valid")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_folders_and_skips_files() {
-        let entries = parse_entries(
-            r#"{"entries":[
-                {"folderUri":"file:///c%3A/code/project"},
-                {"fileUri":"file:///c%3A/code/readme.md"},
-                {"label":"remote","folderUri":"vscode-remote://wsl%2BUbuntu/home/me/app"}
-            ]}"#,
-        )
-        .unwrap();
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].label, "c:\\code\\project");
-        assert_eq!(entries[0].remote_key, "local");
-        assert_eq!(entries[1].remote, "WSL: Ubuntu");
-        assert_eq!(entries[1].remote_key, "wsl");
-        assert!(entries[1].search_key.contains("wsl"));
-    }
-
-    #[test]
-    fn decodes_utf8_uri_components() {
-        assert_eq!(percent_decode("caf%C3%A9%20app"), "café app");
-    }
-
-    #[test]
-    fn assigns_distinct_remote_colors() {
-        assert_ne!(row_colors("LOCAL", false), row_colors("WSL: Ubuntu", false));
-        assert_ne!(
-            row_colors("WSL: Ubuntu", false),
-            row_colors("SSH: host", false)
-        );
-        assert_ne!(
-            row_colors("SSH: host", false),
-            row_colors("DEV CONTAINER", false)
-        );
-        assert_ne!(row_colors("LOCAL", false), row_colors("LOCAL", true));
     }
 }
