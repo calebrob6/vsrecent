@@ -1,4 +1,4 @@
-"""Generate vsrecent.ico — a multi-resolution app icon.
+"""Generate vsrecent.ico and macos/vsrecent.icns — multi-resolution app icons.
 
 Design:
   - Rounded dark square background (matches the app's dark theme).
@@ -10,11 +10,22 @@ Design:
 
 Outputs vsrecent.ico with sizes: 16, 24, 32, 48, 64, 128, 256 (PNG-encoded
 within the .ico for the 256 entry).
+
+Outputs macos/vsrecent.icns with the same artwork placed on Apple's icon grid:
+the rounded square fills 824/1024 of the canvas and sits above a soft shadow.
 """
 from PIL import Image, ImageDraw, ImageFilter
 import os, sys
 
 OUT = os.path.join(os.path.dirname(__file__), "vsrecent.ico")
+ICNS_OUT = os.path.join(os.path.dirname(__file__), "macos", "vsrecent.icns")
+PREVIEW_DIR = os.path.join(os.path.dirname(__file__), "_icon_preview")
+
+# Corner radius of the background as a fraction of its width.
+WINDOWS_RADIUS = 0.18
+MACOS_RADIUS = 0.2237
+# Portion of the macOS canvas covered by the background.
+MACOS_ART_SCALE = 824 / 1024
 
 # Colors
 BG_TOP    = (30, 30, 30, 255)      # #1E1E1E
@@ -46,7 +57,7 @@ def vgradient(size, top_rgba, bot_rgba):
         base.putpixel((0, y), (r, g, b, a))
     return base.resize((w, h))
 
-def render(size):
+def render(size, radius_ratio=WINDOWS_RADIUS):
     """Render the icon at a given square size and return RGBA Image."""
     s = size
     # Work at 4x supersample for AA, then downsample.
@@ -57,7 +68,7 @@ def render(size):
     d = ImageDraw.Draw(img)
 
     # Background: rounded square with vertical gradient.
-    radius = int(W * 0.18)
+    radius = int(W * radius_ratio)
     bg = vgradient((W, W), BG_TOP, BG_BOT)
     mask = rounded_rect_mask((W, W), radius)
     img.paste(bg, (0, 0), mask)
@@ -179,12 +190,48 @@ def render(size):
     return img
 
 
-def main():
+def render_macos(size):
+    """Render the icon on Apple's icon grid at a given square size."""
+    art_size = max(1, round(size * MACOS_ART_SCALE))
+    art = render(art_size, MACOS_RADIUS)
+    offset = (size - art_size) // 2
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+
+    # Soft drop shadow below the background, as on other macOS app icons.
+    drop = max(1, round(size * 10 / 1024))
+    shadow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    shadow.paste(
+        Image.new("RGBA", (art_size, art_size), (0, 0, 0, 80)),
+        (offset, offset + drop),
+        rounded_rect_mask((art_size, art_size), int(art_size * MACOS_RADIUS)),
+    )
+    img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(radius=size * 10 / 1024)))
+    img.alpha_composite(art, (offset, offset))
+    return img
+
+
+def write_icns():
+    # Pixel sizes of the 16, 32, 128, 256, and 512 point icons at 1x and 2x
+    # that Pillow stores in an .icns file.
+    sizes = [32, 64, 128, 256, 512, 1024]
+    images = [render_macos(s) for s in sizes]
+
+    os.makedirs(PREVIEW_DIR, exist_ok=True)
+    for s, im in zip(sizes, images):
+        im.save(os.path.join(PREVIEW_DIR, f"macos_{s}.png"))
+
+    os.makedirs(os.path.dirname(ICNS_OUT), exist_ok=True)
+    images[-1].save(ICNS_OUT, format="ICNS", append_images=images[:-1])
+    print(f"Wrote {ICNS_OUT} ({os.path.getsize(ICNS_OUT)} bytes)")
+    print("Sizes:", sizes)
+
+
+def write_ico():
     sizes = [16, 24, 32, 48, 64, 128, 256]
     images = [render(s) for s in sizes]
 
     # Save individual PNGs for visual inspection
-    preview_dir = os.path.join(os.path.dirname(__file__), "_icon_preview")
+    preview_dir = PREVIEW_DIR
     os.makedirs(preview_dir, exist_ok=True)
     for s, im in zip(sizes, images):
         im.save(os.path.join(preview_dir, f"icon_{s}.png"))
@@ -228,6 +275,11 @@ def main():
 
     print(f"Wrote {OUT} ({os.path.getsize(OUT)} bytes)")
     print("Sizes:", sizes)
+
+
+def main():
+    write_ico()
+    write_icns()
 
 
 if __name__ == "__main__":
